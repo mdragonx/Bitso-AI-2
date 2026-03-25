@@ -2,18 +2,20 @@
 
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { BarChart3, History, Shield, Activity } from 'lucide-react';
+import { BarChart3, History, Shield, Activity, Key } from 'lucide-react';
 
 interface SidebarProps {
   activeScreen: string;
   onNavigate: (screen: string) => void;
   activeAgentId: string | null;
+  hasApiKeys?: boolean;
 }
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
   { id: 'history', label: 'Trade History', icon: History },
   { id: 'risk', label: 'Risk Settings', icon: Shield },
+  { id: 'api-settings', label: 'API Settings', icon: Key },
 ];
 
 const AGENTS = [
@@ -23,7 +25,7 @@ const AGENTS = [
   { id: '69c440b01b19ba3adafaf1d7', name: 'Trade Execution Agent', role: 'Independent' },
 ];
 
-export default function Sidebar({ activeScreen, onNavigate, activeAgentId }: SidebarProps) {
+export default function Sidebar({ activeScreen, onNavigate, activeAgentId, hasApiKeys }: SidebarProps) {
   return (
     <aside className="w-64 min-h-screen bg-card border-r border-border flex flex-col">
       <div className="p-6 border-b border-border">
@@ -44,6 +46,12 @@ export default function Sidebar({ activeScreen, onNavigate, activeAgentId }: Sid
             >
               <Icon className="h-4 w-4" />
               {item.label}
+              {item.id === 'api-settings' && hasApiKeys && (
+                <span className="ml-auto w-2 h-2 rounded-full bg-emerald-400" />
+              )}
+              {item.id === 'api-settings' && !hasApiKeys && (
+                <span className="ml-auto w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+              )}
             </Button>
           );
         })}

@@ -44,6 +44,21 @@ interface RecentSignal {
   createdAt?: string;
 }
 
+interface BalanceItem {
+  currency: string;
+  available: string;
+  locked: string;
+  total: string;
+}
+
+interface TickerData {
+  last: string;
+  high: string;
+  low: string;
+  volume: string;
+  book: string;
+}
+
 interface DashboardProps {
   selectedPair: string;
   onPairChange: (pair: string) => void;
@@ -57,6 +72,10 @@ interface DashboardProps {
   recentSignals: RecentSignal[];
   error: string;
   showSample: boolean;
+  balances: BalanceItem[];
+  ticker: TickerData | null;
+  balanceLoading: boolean;
+  hasApiKeys: boolean;
 }
 
 const PAIRS = ['btc_mxn', 'eth_mxn', 'xrp_mxn', 'ltc_mxn'];
@@ -110,17 +129,37 @@ function SignalBadge({ signal }: { signal?: string }) {
   return <Badge className="bg-amber-600/20 text-amber-400 border-amber-600/30 tracking-wider text-xs"><Minus className="h-3 w-3 mr-1" />HOLD</Badge>;
 }
 
+const SAMPLE_BALANCES: BalanceItem[] = [
+  { currency: 'btc', available: '0.04521', locked: '0.00000', total: '0.04521' },
+  { currency: 'eth', available: '1.25000', locked: '0.00000', total: '1.25000' },
+  { currency: 'mxn', available: '45230.50', locked: '0.00', total: '45230.50' },
+  { currency: 'xrp', available: '500.000', locked: '0.000', total: '500.000' },
+];
+
+const SAMPLE_TICKER: TickerData = {
+  last: '1,598,450.00',
+  high: '1,625,000.00',
+  low: '1,570,200.00',
+  volume: '42.35',
+  book: 'btc_mxn',
+};
+
 export default function DashboardSection({
   selectedPair, onPairChange, analysisResult, tradeResult, analyzing, executing,
   onRunAnalysis, onExecuteTrade, onRejectSignal, recentSignals, error, showSample,
+  balances, ticker, balanceLoading, hasApiKeys,
 }: DashboardProps) {
   const [tradeAmount, setTradeAmount] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
 
   const data = showSample ? SAMPLE_ANALYSIS : analysisResult;
   const signals = showSample ? SAMPLE_SIGNALS : recentSignals;
+  const displayBalances = showSample ? SAMPLE_BALANCES : balances;
+  const displayTicker = showSample ? SAMPLE_TICKER : ticker;
   const signalUpper = (data?.signal ?? '').toUpperCase();
   const canExecute = signalUpper === 'BUY' || signalUpper === 'SELL';
+
+  const pairBase = selectedPair.split('_')[0]?.toUpperCase() || '';
 
   return (
     <div className="space-y-6">
@@ -140,6 +179,66 @@ export default function DashboardSection({
           </Button>
         </div>
       </div>
+
+      {/* Live Ticker */}
+      {displayTicker && (
+        <Card className="bg-card border-border">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Last Price</p>
+                <p className="text-2xl font-serif font-medium text-primary tracking-wider">${displayTicker.last}</p>
+              </div>
+              <div className="flex gap-6">
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground">24h High</p>
+                  <p className="text-sm font-medium text-emerald-400">${displayTicker.high}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground">24h Low</p>
+                  <p className="text-sm font-medium text-red-400">${displayTicker.low}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Volume</p>
+                  <p className="text-sm font-medium">{displayTicker.volume} {pairBase}</p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Portfolio Balances */}
+      {(displayBalances.length > 0 || balanceLoading) && (
+        <Card className="bg-card border-border">
+          <CardHeader className="pb-3">
+            <CardTitle className="font-serif tracking-wider text-base">Portfolio Balances</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {balanceLoading ? (
+              <div className="flex items-center gap-2 py-4">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                <span className="text-sm text-muted-foreground">Loading balances...</span>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {displayBalances.filter((b: BalanceItem) => parseFloat(b.total) > 0).map((b: BalanceItem) => (
+                  <div key={b.currency} className="p-3 bg-muted/30 border border-border">
+                    <p className="text-[10px] uppercase tracking-widest text-muted-foreground">{b.currency.toUpperCase()}</p>
+                    <p className="text-lg font-medium mt-1">{parseFloat(b.available).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}</p>
+                    {parseFloat(b.locked) > 0 && (
+                      <p className="text-[10px] text-muted-foreground mt-0.5">Locked: {b.locked}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {!hasApiKeys && !showSample && (
+              <p className="text-xs text-muted-foreground mt-2">Connect your Bitso API keys in API Settings to see live balances.</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {error && (
         <Card className="border-destructive/50 bg-destructive/10">

@@ -9,6 +9,7 @@ import Sidebar from './sections/Sidebar';
 import DashboardSection from './sections/DashboardSection';
 import TradeHistorySection from './sections/TradeHistorySection';
 import RiskSettingsSection from './sections/RiskSettingsSection';
+import ApiSettingsSection from './sections/ApiSettingsSection';
 
 const MARKET_ANALYSIS_AGENT = '69c440a030aebe1ba52aede0';
 const TRADE_EXECUTION_AGENT = '69c440b01b19ba3adafaf1d7';
@@ -120,6 +121,11 @@ export default function Page() {
   const [trades, setTrades] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
+  const [balances, setBalances] = useState<any[]>([]);
+  const [ticker, setTicker] = useState<any>(null);
+  const [balanceLoading, setBalanceLoading] = useState(false);
+  const [hasApiKeys, setHasApiKeys] = useState(false);
+
   const fetchSignals = useCallback(async () => {
     try {
       const res = await fetch('/api/trade_signals');
@@ -140,10 +146,50 @@ export default function Page() {
     } catch { /* silent */ }
   }, []);
 
+  const checkApiKeys = useCallback(async () => {
+    try {
+      const res = await fetch('/api/bitso_credentials');
+      const json = await res.json();
+      const has = json.success && Array.isArray(json.data) && json.data.length > 0;
+      setHasApiKeys(has);
+      return has;
+    } catch { return false; }
+  }, []);
+
+  const fetchBalances = useCallback(async () => {
+    setBalanceLoading(true);
+    try {
+      const res = await fetch('/api/bitso/balance');
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data?.balances)) {
+        setBalances(json.data.balances);
+      } else if (json.success && Array.isArray(json.data)) {
+        setBalances(json.data);
+      }
+    } catch { /* silent */ }
+    setBalanceLoading(false);
+  }, []);
+
+  const fetchTicker = useCallback(async (pair: string) => {
+    try {
+      const res = await fetch(`/api/bitso/ticker?book=${pair}`);
+      const json = await res.json();
+      if (json.success && json.data) {
+        setTicker(json.data);
+      }
+    } catch { /* silent */ }
+  }, []);
+
   useEffect(() => {
     fetchSignals();
     fetchTrades();
-  }, [fetchSignals, fetchTrades]);
+    checkApiKeys().then((has) => {
+      if (has) {
+        fetchBalances();
+        fetchTicker(selectedPair);
+      }
+    });
+  }, [fetchSignals, fetchTrades, checkApiKeys, fetchBalances, fetchTicker, selectedPair]);
 
   const handleRunAnalysis = async () => {
     setAnalyzing(true);
@@ -154,8 +200,27 @@ export default function Page() {
 
     try {
       const pairLabel = selectedPair.replace('_', '/').toUpperCase();
+
+      // Fetch real OHLC data from Bitso if API keys are configured
+      let ohlcContext = '';
+      if (hasApiKeys) {
+        try {
+          const ohlcRes = await fetch(`/api/bitso/ohlc?book=${selectedPair}&timeframe=1hour`);
+          const ohlcJson = await ohlcRes.json();
+          if (ohlcJson.success && ohlcJson.data) {
+            const candles = Array.isArray(ohlcJson.data) ? ohlcJson.data.slice(-50) : [];
+            ohlcContext = `\n\nHere is the latest OHLC data (last 50 1-hour candles) from the Bitso exchange:\n${JSON.stringify(candles)}`;
+          }
+        } catch { /* continue without OHLC data */ }
+
+        // Also include current balances for position sizing context
+        if (balances.length > 0) {
+          ohlcContext += `\n\nCurrent portfolio balances: ${JSON.stringify(balances.filter(b => parseFloat(b.total) > 0).map(b => ({ currency: b.currency, available: b.available })))}`;
+        }
+      }
+
       const result = await callAIAgent(
-        `Analyze the current market conditions for ${pairLabel}. Provide a buy/sell/hold recommendation with confidence score, technical analysis summary, market research summary, risk assessment, recommended entry price, exit price, stop-loss price, and position size suggestion.`,
+        `Analyze the current market conditions for ${pairLabel}. Provide a buy/sell/hold recommendation with confidence score, technical analysis summary, market research summary, risk assessment, recommended entry price, exit price, stop-loss price, and position size suggestion.${ohlcContext}`,
         MARKET_ANALYSIS_AGENT
       );
 
@@ -202,8 +267,34 @@ export default function Page() {
     try {
       const pairLabel = selectedPair.replace('_', '/').toUpperCase();
       const side = (analysisResult.signal ?? 'BUY').toLowerCase();
+
+      // If API keys are available, also execute the order via our proxy
+      let directTradeResult = '';
+      if (hasApiKeys) {
+        try {
+          const orderRes = await fetch('/api/bitso/order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              book: selectedPair,
+              side: side,
+              type: 'market',
+              major: amount,
+            }),
+          });
+          const orderJson = await orderRes.json();
+          if (orderJson.success) {
+            directTradeResult = `\n\nThe order has been placed successfully on Bitso. Order response: ${JSON.stringify(orderJson.data)}`;
+          } else {
+            directTradeResult = `\n\nBitso API order attempt result: ${orderJson.error || 'Failed'}. Please report the actual outcome.`;
+          }
+        } catch (orderErr: any) {
+          directTradeResult = `\n\nDirect Bitso API order attempt failed: ${orderErr.message}`;
+        }
+      }
+
       const result = await callAIAgent(
-        `Execute a ${side} order for ${pairLabel}. Amount: ${amount}. Entry price: ${analysisResult.recommended_entry_price ?? 'market'}. Stop-loss: ${analysisResult.stop_loss_price ?? 'none'}. This trade has been approved by the user.`,
+        `Execute a ${side} order for ${pairLabel}. Amount: ${amount}. Entry price: ${analysisResult.recommended_entry_price ?? 'market'}. Stop-loss: ${analysisResult.stop_loss_price ?? 'none'}. This trade has been approved by the user.${directTradeResult}`,
         TRADE_EXECUTION_AGENT
       );
 
@@ -238,6 +329,8 @@ export default function Page() {
         });
         await fetchSignals();
         await fetchTrades();
+        // Refresh balances after trade
+        if (hasApiKeys) { fetchBalances(); }
       } else {
         setError('Trade execution failed. Please try again.');
       }
@@ -273,7 +366,7 @@ export default function Page() {
       <ErrorBoundary>
         <ProtectedRoute unauthenticatedFallback={<AuthScreen />}>
           <div style={THEME_VARS} className="min-h-screen bg-background text-foreground flex">
-            <Sidebar activeScreen={activeScreen} onNavigate={setActiveScreen} activeAgentId={activeAgentId} />
+            <Sidebar activeScreen={activeScreen} onNavigate={setActiveScreen} activeAgentId={activeAgentId} hasApiKeys={hasApiKeys} />
 
             <div className="flex-1 flex flex-col min-h-screen">
               <header className="h-14 border-b border-border flex items-center justify-between px-6">
@@ -304,6 +397,10 @@ export default function Page() {
                     recentSignals={recentSignals}
                     error={error}
                     showSample={showSample}
+                    balances={balances}
+                    ticker={ticker}
+                    balanceLoading={balanceLoading}
+                    hasApiKeys={hasApiKeys}
                   />
                 )}
                 {activeScreen === 'history' && (
@@ -316,6 +413,14 @@ export default function Page() {
                 )}
                 {activeScreen === 'risk' && (
                   <RiskSettingsSection showSample={showSample} />
+                )}
+                {activeScreen === 'api-settings' && (
+                  <ApiSettingsSection onCredentialsSaved={() => {
+                    checkApiKeys().then((has) => {
+                      if (has) { fetchBalances(); fetchTicker(selectedPair); }
+                      else { setBalances([]); setTicker(null); }
+                    });
+                  }} />
                 )}
               </main>
             </div>
