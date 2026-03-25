@@ -59,6 +59,11 @@ interface TickerData {
   book: string;
 }
 
+interface FeeTierInfo {
+  maker: number;
+  taker: number;
+}
+
 interface DashboardProps {
   selectedPair: string;
   onPairChange: (pair: string) => void;
@@ -76,6 +81,8 @@ interface DashboardProps {
   ticker: TickerData | null;
   balanceLoading: boolean;
   hasApiKeys: boolean;
+  feeTier: FeeTierInfo;
+  behavioralPosition: string;
 }
 
 const PAIRS = ['btc_mxn', 'eth_mxn', 'xrp_mxn', 'ltc_mxn'];
@@ -144,10 +151,16 @@ const SAMPLE_TICKER: TickerData = {
   book: 'btc_mxn',
 };
 
+const BEHAVIOR_LABELS: Record<string, { label: string; color: string }> = {
+  conservative: { label: 'Conservative', color: 'text-blue-400' },
+  moderate: { label: 'Moderate', color: 'text-primary' },
+  aggressive: { label: 'Aggressive', color: 'text-red-400' },
+};
+
 export default function DashboardSection({
   selectedPair, onPairChange, analysisResult, tradeResult, analyzing, executing,
   onRunAnalysis, onExecuteTrade, onRejectSignal, recentSignals, error, showSample,
-  balances, ticker, balanceLoading, hasApiKeys,
+  balances, ticker, balanceLoading, hasApiKeys, feeTier, behavioralPosition,
 }: DashboardProps) {
   const [tradeAmount, setTradeAmount] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
@@ -177,6 +190,12 @@ export default function DashboardSection({
           <Button onClick={onRunAnalysis} disabled={analyzing} className="bg-primary text-primary-foreground hover:bg-primary/90 tracking-wider text-xs uppercase px-8">
             {analyzing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Analyzing Market...</> : 'Run Analysis'}
           </Button>
+        </div>
+        <div className="mt-5 flex items-center gap-2">
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Strategy:</span>
+          <Badge className={`tracking-wider text-xs ${BEHAVIOR_LABELS[behavioralPosition]?.color ?? 'text-primary'} bg-muted/40 border-border`}>
+            {BEHAVIOR_LABELS[behavioralPosition]?.label ?? 'Moderate'}
+          </Badge>
         </div>
       </div>
 
@@ -222,7 +241,7 @@ export default function DashboardSection({
               </div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {displayBalances.filter((b: BalanceItem) => parseFloat(b.total) > 0).map((b: BalanceItem) => (
+                {displayBalances.filter((b: BalanceItem) => parseFloat(b.total) > 0.01).map((b: BalanceItem) => (
                   <div key={b.currency} className="p-3 bg-muted/30 border border-border">
                     <p className="text-[10px] uppercase tracking-widest text-muted-foreground">{b.currency.toUpperCase()}</p>
                     <p className="text-lg font-medium mt-1">{parseFloat(b.available).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}</p>
@@ -312,31 +331,70 @@ export default function DashboardSection({
         </Card>
       )}
 
-      {showConfirm && (
-        <Card className="bg-card border-primary/30">
-          <CardHeader>
-            <CardTitle className="font-serif tracking-wider text-base">Confirm Trade Execution</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div><span className="text-muted-foreground">Pair:</span> <span className="ml-2">{selectedPair.replace('_', '/').toUpperCase()}</span></div>
-              <div><span className="text-muted-foreground">Signal:</span> <span className="ml-2">{data?.signal}</span></div>
-              <div><span className="text-muted-foreground">Entry:</span> <span className="ml-2">{data?.recommended_entry_price}</span></div>
-              <div><span className="text-muted-foreground">Stop Loss:</span> <span className="ml-2">{data?.stop_loss_price}</span></div>
-            </div>
-            <div>
-              <Label className="text-[10px] uppercase tracking-widest text-muted-foreground">Trade Amount</Label>
-              <Input type="text" placeholder="e.g. 0.015 BTC" value={tradeAmount} onChange={(e) => setTradeAmount(e.target.value)} className="bg-input border-border mt-1" />
-            </div>
-            <div className="flex gap-3">
-              <Button onClick={() => { onExecuteTrade(tradeAmount); setShowConfirm(false); }} disabled={executing || !tradeAmount} className="bg-primary text-primary-foreground hover:bg-primary/90 tracking-wider text-xs uppercase">
-                {executing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Executing...</> : 'Confirm & Execute'}
-              </Button>
-              <Button variant="outline" onClick={() => setShowConfirm(false)} className="border-border tracking-wider text-xs uppercase">Cancel</Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {showConfirm && (() => {
+        // Commission calculation
+        const entryPriceStr = data?.recommended_entry_price ?? '0';
+        const entryPriceNum = parseFloat(entryPriceStr.replace(/[^0-9.]/g, '')) || 0;
+        const amountNum = parseFloat(tradeAmount) || 0;
+        const estimatedTotal = amountNum * entryPriceNum;
+        const takerFeeRate = feeTier.taker;
+        const makerFeeRate = feeTier.maker;
+        const takerFee = estimatedTotal * takerFeeRate;
+        const makerFee = estimatedTotal * makerFeeRate;
+        const totalWithTakerFee = estimatedTotal + takerFee;
+
+        return (
+          <Card className="bg-card border-primary/30">
+            <CardHeader>
+              <CardTitle className="font-serif tracking-wider text-base">Confirm Trade Execution</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div><span className="text-muted-foreground">Pair:</span> <span className="ml-2">{selectedPair.replace('_', '/').toUpperCase()}</span></div>
+                <div><span className="text-muted-foreground">Signal:</span> <span className="ml-2">{data?.signal}</span></div>
+                <div><span className="text-muted-foreground">Entry:</span> <span className="ml-2">{data?.recommended_entry_price}</span></div>
+                <div><span className="text-muted-foreground">Stop Loss:</span> <span className="ml-2">{data?.stop_loss_price}</span></div>
+              </div>
+              <div>
+                <Label className="text-[10px] uppercase tracking-widest text-muted-foreground">Trade Amount ({pairBase})</Label>
+                <Input type="text" placeholder={`e.g. 0.015 ${pairBase}`} value={tradeAmount} onChange={(e) => setTradeAmount(e.target.value)} className="bg-input border-border mt-1" />
+              </div>
+
+              {/* Commission / Cost Breakdown */}
+              {amountNum > 0 && entryPriceNum > 0 && (
+                <div className="p-4 bg-muted/30 border border-border space-y-3">
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">Transaction Cost Breakdown</p>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Subtotal ({amountNum} {pairBase} x ${entryPriceNum.toLocaleString()})</span>
+                      <span>${estimatedTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Taker Fee ({(takerFeeRate * 100).toFixed(2)}%) — market order</span>
+                      <span className="text-amber-400">${takerFee.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>Maker Fee ({(makerFeeRate * 100).toFixed(2)}%) — if limit order</span>
+                      <span>${makerFee.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN</span>
+                    </div>
+                    <div className="border-t border-border pt-2 flex justify-between font-medium">
+                      <span>Estimated Total (market order)</span>
+                      <span className="text-primary">${totalWithTakerFee.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <Button onClick={() => { onExecuteTrade(tradeAmount); setShowConfirm(false); }} disabled={executing || !tradeAmount} className="bg-primary text-primary-foreground hover:bg-primary/90 tracking-wider text-xs uppercase">
+                  {executing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Executing...</> : 'Confirm & Execute'}
+                </Button>
+                <Button variant="outline" onClick={() => setShowConfirm(false)} className="border-border tracking-wider text-xs uppercase">Cancel</Button>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {tradeResult && (
         <Card className={`border ${tradeResult.status === 'success' ? 'border-emerald-600/30 bg-emerald-900/10' : 'border-destructive/30 bg-destructive/10'}`}>

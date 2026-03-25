@@ -2,13 +2,14 @@
 
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { BarChart3, History, Shield, Activity, Key } from 'lucide-react';
+import { BarChart3, History, Shield, Activity, Key, Target } from 'lucide-react';
 
 interface SidebarProps {
   activeScreen: string;
   onNavigate: (screen: string) => void;
   activeAgentId: string | null;
   hasApiKeys?: boolean;
+  behavioralPosition?: string;
 }
 
 const NAV_ITEMS = [
@@ -25,7 +26,13 @@ const AGENTS = [
   { id: '69c440b01b19ba3adafaf1d7', name: 'Trade Execution Agent', role: 'Independent' },
 ];
 
-export default function Sidebar({ activeScreen, onNavigate, activeAgentId, hasApiKeys }: SidebarProps) {
+const BEHAVIOR_COLORS: Record<string, string> = {
+  conservative: 'bg-blue-400',
+  moderate: 'bg-amber-400',
+  aggressive: 'bg-red-400',
+};
+
+export default function Sidebar({ activeScreen, onNavigate, activeAgentId, hasApiKeys, behavioralPosition }: SidebarProps) {
   return (
     <aside className="w-64 min-h-screen bg-card border-r border-border flex flex-col">
       <div className="p-6 border-b border-border">
@@ -56,6 +63,18 @@ export default function Sidebar({ activeScreen, onNavigate, activeAgentId, hasAp
           );
         })}
       </nav>
+
+      {behavioralPosition && (
+        <div className="px-4 pb-3">
+          <div className="p-3 bg-muted/30 border border-border">
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Active Strategy</p>
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${BEHAVIOR_COLORS[behavioralPosition] ?? 'bg-amber-400'}`} />
+              <span className="text-xs font-medium tracking-wider capitalize">{behavioralPosition}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="p-4 border-t border-border">
         <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-3">Agent Status</p>

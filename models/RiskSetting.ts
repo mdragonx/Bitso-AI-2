@@ -10,6 +10,8 @@ export default async function getRiskSettingModel() {
       daily_limit: { type: Number, default: 5000 },
       stop_loss_pct: { type: Number, default: 5 },
       allowed_pairs: { type: String, default: 'BTC/MXN,ETH/MXN,XRP/MXN,LTC/MXN' },
+      behavioral_position: { type: String, default: 'moderate' },
+      fee_tier: { type: String, default: 'starter' },
     });
   }
   return _model;

@@ -125,6 +125,17 @@ export default function Page() {
   const [ticker, setTicker] = useState<any>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [hasApiKeys, setHasApiKeys] = useState(false);
+  const [behavioralPosition, setBehavioralPosition] = useState('moderate');
+  const [feeTier, setFeeTier] = useState({ maker: 0.005, taker: 0.0065 });
+
+  const FEE_TIER_MAP: Record<string, { maker: number; taker: number }> = {
+    starter: { maker: 0.005, taker: 0.0065 },
+    tier1: { maker: 0.004, taker: 0.005 },
+    tier2: { maker: 0.003, taker: 0.004 },
+    tier3: { maker: 0.002, taker: 0.003 },
+    tier4: { maker: 0.001, taker: 0.002 },
+    tier5: { maker: 0.0005, taker: 0.001 },
+  };
 
   const fetchSignals = useCallback(async () => {
     try {
@@ -142,6 +153,19 @@ export default function Page() {
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
         setTrades(json.data.reverse());
+      }
+    } catch { /* silent */ }
+  }, []);
+
+  const loadRiskSettings = useCallback(async () => {
+    try {
+      const res = await fetch('/api/risk_settings');
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+        const s = json.data[0];
+        setBehavioralPosition(s.behavioral_position ?? 'moderate');
+        const tierKey = s.fee_tier ?? 'starter';
+        setFeeTier(FEE_TIER_MAP[tierKey] ?? FEE_TIER_MAP.starter);
       }
     } catch { /* silent */ }
   }, []);
@@ -183,13 +207,14 @@ export default function Page() {
   useEffect(() => {
     fetchSignals();
     fetchTrades();
+    loadRiskSettings();
     checkApiKeys().then((has) => {
       if (has) {
         fetchBalances();
         fetchTicker(selectedPair);
       }
     });
-  }, [fetchSignals, fetchTrades, checkApiKeys, fetchBalances, fetchTicker, selectedPair]);
+  }, [fetchSignals, fetchTrades, checkApiKeys, fetchBalances, fetchTicker, loadRiskSettings, selectedPair]);
 
   const handleRunAnalysis = async () => {
     setAnalyzing(true);
@@ -219,8 +244,14 @@ export default function Page() {
         }
       }
 
+      const behaviorInstruction = behavioralPosition === 'conservative'
+        ? 'INVESTMENT STRATEGY: Conservative. Only recommend BUY/SELL on high-confidence signals (>75%). Prefer HOLD for uncertain conditions. Suggest smaller position sizes and tighter stop-losses. Prioritize capital preservation.'
+        : behavioralPosition === 'aggressive'
+        ? 'INVESTMENT STRATEGY: Aggressive. Act on signals with >45% confidence. Suggest larger position sizes and wider stop-losses. Actively seek momentum plays and breakout opportunities. Higher risk tolerance.'
+        : 'INVESTMENT STRATEGY: Moderate. Act on signals with >60% confidence. Standard position sizes with balanced stop-losses. Follow market trends with measured risk/reward.';
+
       const result = await callAIAgent(
-        `Analyze the current market conditions for ${pairLabel}. Provide a buy/sell/hold recommendation with confidence score, technical analysis summary, market research summary, risk assessment, recommended entry price, exit price, stop-loss price, and position size suggestion.${ohlcContext}`,
+        `${behaviorInstruction}\n\nAnalyze the current market conditions for ${pairLabel}. Provide a buy/sell/hold recommendation with confidence score, technical analysis summary, market research summary, risk assessment, recommended entry price, exit price, stop-loss price, and position size suggestion.${ohlcContext}`,
         MARKET_ANALYSIS_AGENT
       );
 
@@ -366,7 +397,7 @@ export default function Page() {
       <ErrorBoundary>
         <ProtectedRoute unauthenticatedFallback={<AuthScreen />}>
           <div style={THEME_VARS} className="min-h-screen bg-background text-foreground flex">
-            <Sidebar activeScreen={activeScreen} onNavigate={setActiveScreen} activeAgentId={activeAgentId} hasApiKeys={hasApiKeys} />
+            <Sidebar activeScreen={activeScreen} onNavigate={setActiveScreen} activeAgentId={activeAgentId} hasApiKeys={hasApiKeys} behavioralPosition={behavioralPosition} />
 
             <div className="flex-1 flex flex-col min-h-screen">
               <header className="h-14 border-b border-border flex items-center justify-between px-6">
@@ -401,6 +432,8 @@ export default function Page() {
                     ticker={ticker}
                     balanceLoading={balanceLoading}
                     hasApiKeys={hasApiKeys}
+                    feeTier={feeTier}
+                    behavioralPosition={behavioralPosition}
                   />
                 )}
                 {activeScreen === 'history' && (
@@ -412,7 +445,7 @@ export default function Page() {
                   />
                 )}
                 {activeScreen === 'risk' && (
-                  <RiskSettingsSection showSample={showSample} />
+                  <RiskSettingsSection showSample={showSample} onSettingsChanged={loadRiskSettings} />
                 )}
                 {activeScreen === 'api-settings' && (
                   <ApiSettingsSection onCredentialsSaved={() => {
