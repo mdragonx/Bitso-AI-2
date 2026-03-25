@@ -1,0 +1,32 @@
+{
+  "agent_name": "Trade Execution Agent",
+  "agent_id": "69c440b01b19ba3adafaf1d7",
+  "description": "After user approves a recommendation, constructs and validates the Bitso API trade payload, executes the trade via Custom Tool, and returns confirmation/result",
+  "agent_type": "json",
+  "accessor": "result",
+  "auto_generated": true,
+  "response_schema": {
+    "status": "string",
+    "order_id": "string",
+    "pair": "string",
+    "side": "string",
+    "amount": "string",
+    "price": "string",
+    "total_value": "string",
+    "risk_check_passed": "boolean",
+    "risk_check_details": "string",
+    "message": "string"
+  },
+  "example_response": {
+    "status": "success, failed, or rejected",
+    "order_id": "Bitso order ID",
+    "pair": "Trading pair",
+    "side": "buy or sell",
+    "amount": "Trade amount",
+    "price": "Execution price",
+    "total_value": "Total trade value",
+    "risk_check_passed": false,
+    "risk_check_details": "Details of risk check",
+    "message": "Human readable result message"
+  }
+}
