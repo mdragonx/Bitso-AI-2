@@ -20,6 +20,7 @@ import {
 test('analysis trigger contracts validate request and response', () => {
   const request = analysisTriggerRequestSchema.parse({ message: 'Analyze BTC', agent_id: 'agent-1' });
   assert.equal(request.agent_id, 'agent-1');
+  assert.equal('user_id' in request, false);
 
   const response = analysisTriggerResponseSchema.parse({
     success: true,

@@ -5,6 +5,7 @@ import path from 'path'
 import { getAIProviderClient } from '@/lib/ai/providerFactory'
 import type { AIRequestInput } from '@/lib/ai/types'
 import { analysisTriggerRequestSchema } from '@/lib/contracts/apiContracts'
+import { getCurrentUserId, withAuth } from '@/lib/auth'
 import {
   getCorrelationContextFromRequest,
   recordAnalysisMetric,
@@ -153,6 +154,9 @@ function validatePayload(body: unknown): AIRequestInput {
   if (body && typeof body === 'object' && 'task_id' in (body as Record<string, unknown>)) {
     throw new Error('task_id polling is not supported for configured provider')
   }
+  if (body && typeof body === 'object' && 'user_id' in (body as Record<string, unknown>)) {
+    throw new Error('Validation failed: user_id is derived from the authenticated session and cannot be provided by the client')
+  }
 
   return parseOrThrow(analysisTriggerRequestSchema, body)
 }
@@ -294,36 +298,37 @@ Context: ${JSON.stringify(sharedContext)}`
   }
 }
 
-export async function POST(request: NextRequest) {
+async function postHandler(request: NextRequest) {
   const startedAt = Date.now()
   const correlation = getCorrelationContextFromRequest(request)
 
   try {
     const body = await request.json()
     const input = validatePayload(body)
-    const userId = typeof input.user_id === 'string' ? input.user_id : null
+    const userId = getCurrentUserId(request) || null
+    const providerInput: AIRequestInput = { ...input, user_id: userId || undefined }
     const baseLogContext = {
       correlation_id: correlation.correlationId,
       request_id: correlation.requestId,
       user_id: userId,
-      agent_id: input.agent_id,
+      agent_id: providerInput.agent_id,
     }
 
     withLifecycleLog('info', 'analysis_request_received', baseLogContext)
 
-    const schema = await loadResponseSchema(input.agent_id)
-    const providerResponse = input.agent_id === MARKET_ANALYSIS_COORDINATOR_AGENT_ID
-      ? await runMarketCoordinatorFlow(input, {
+    const schema = await loadResponseSchema(providerInput.agent_id)
+    const providerResponse = providerInput.agent_id === MARKET_ANALYSIS_COORDINATOR_AGENT_ID
+      ? await runMarketCoordinatorFlow(providerInput, {
           correlationId: correlation.correlationId,
           requestId: correlation.requestId,
           userId,
         })
-      : await getAIProviderClient().generateStructuredResponse(input, schema)
+      : await getAIProviderClient().generateStructuredResponse(providerInput, schema)
 
     if (schema) {
       const validation = validateAgainstSchema(providerResponse.result, schema)
       if (!validation.valid) {
-        const errorMessage = `Response validation failed for agent_id=${input.agent_id}: ${validation.errors.join(
+        const errorMessage = `Response validation failed for agent_id=${providerInput.agent_id}: ${validation.errors.join(
           '; '
         )}`
         const latencyMs = Date.now() - startedAt
@@ -396,3 +401,5 @@ export async function POST(request: NextRequest) {
     return response
   }
 }
+
+export const POST = withAuth(postHandler)
