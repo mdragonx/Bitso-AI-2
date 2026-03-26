@@ -2,6 +2,19 @@ import getScheduleExecutionModel from '@/models/ScheduleExecution'
 import getScheduleModel from '@/models/Schedule'
 import { computeNextRunTime } from '@/lib/scheduler/worker'
 
+const DEFAULT_LIMIT = 50
+const MAX_LIMIT = 100
+const MAX_SKIP = 1000
+
+function sanitizePagination(skip?: number, limit?: number) {
+  const normalizedSkip = typeof skip === 'number' && Number.isFinite(skip) ? Math.floor(skip) : 0
+  const normalizedLimit = typeof limit === 'number' && Number.isFinite(limit) ? Math.floor(limit) : DEFAULT_LIMIT
+  return {
+    skip: Math.min(Math.max(0, normalizedSkip), MAX_SKIP),
+    limit: Math.min(Math.max(1, normalizedLimit), MAX_LIMIT),
+  }
+}
+
 interface ScheduleCreateInput {
   owner_user_id: string
   agent_id: string
@@ -74,8 +87,7 @@ export async function listSchedules(params: {
   if (params.agent_id) query.agent_id = params.agent_id
   if (typeof params.is_active === 'boolean') query.is_active = params.is_active
 
-  const skip = params.skip ?? 0
-  const limit = params.limit ?? 50
+  const { skip, limit } = sanitizePagination(params.skip, params.limit)
 
   const [docs, total] = await Promise.all([
     Schedule.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit),
@@ -162,8 +174,7 @@ export async function listScheduleExecutions(params: {
   if (!scheduleDoc) return null
 
   const Execution = await getScheduleExecutionModel()
-  const skip = params.skip ?? 0
-  const limit = params.limit ?? 50
+  const { skip, limit } = sanitizePagination(params.skip, params.limit)
 
   const query = {
     owner_user_id: params.owner_user_id,
@@ -216,8 +227,7 @@ export async function listRecentExecutions(params: {
     query.executed_at = { $gte: new Date(now - params.days * 24 * 60 * 60 * 1000) }
   }
 
-  const skip = params.skip ?? 0
-  const limit = params.limit ?? 50
+  const { skip, limit } = sanitizePagination(params.skip, params.limit)
   const [docs, total] = await Promise.all([
     Execution.find(query).sort({ executed_at: -1 }).skip(skip).limit(limit),
     Execution.countDocuments(query),
