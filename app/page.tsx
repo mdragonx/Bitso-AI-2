@@ -13,7 +13,6 @@ import SchedulerSection from './sections/SchedulerSection';
 import { clientFeatureFlags } from '@/lib/featureFlags';
 
 const MARKET_ANALYSIS_AGENT = '69c440a030aebe1ba52aede0';
-const TRADE_EXECUTION_AGENT = '69c440b01b19ba3adafaf1d7';
 
 const THEME_VARS = {
   '--background': '30 8% 6%',
@@ -219,6 +218,7 @@ interface AnalysisResult {
 interface TradeResult {
   status?: string;
   order_id?: string;
+  idempotency_key?: string;
   pair?: string;
   side?: string;
   amount?: string;
@@ -227,6 +227,7 @@ interface TradeResult {
   risk_check_passed?: boolean;
   risk_check_details?: string;
   message?: string;
+  backend_action?: string;
 }
 
 interface RiskViolation {
@@ -416,93 +417,98 @@ export default function Page() {
     setExecuting(true);
     setError('');
     setRiskViolation(null);
-    setActiveAgentId(TRADE_EXECUTION_AGENT);
 
     try {
-      const pairLabel = selectedPair.replace('_', '/').toUpperCase();
       const side = (analysisResult.signal ?? 'BUY').toLowerCase();
+      const lastSignal = recentSignals[0];
+      const idempotencyKey = `trade-${Date.now()}-${crypto.randomUUID()}`;
 
-      // If API keys are available, also execute the order via our proxy
-      let directTradeResult = '';
-      if (hasApiKeys) {
-        try {
-          const orderRes = await fetch('/api/bitso/order', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              book: selectedPair,
-              side: side,
-              type: 'market',
-              major: amount,
-            }),
+      const orderRes = await fetch('/api/bitso/order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          book: selectedPair,
+          side,
+          type: 'market',
+          major: amount,
+          idempotency_key: idempotencyKey,
+        }),
+      });
+      const orderJson = await orderRes.json();
+
+      if (!orderJson.success) {
+        if (orderJson.risk_violation_code) {
+          setRiskViolation({
+            risk_violation_code: orderJson.risk_violation_code,
+            details: orderJson.details ?? {},
           });
-          const orderJson = await orderRes.json();
-          if (orderJson.success) {
-            directTradeResult = `\n\nThe order has been placed successfully on Bitso. Order response: ${JSON.stringify(orderJson.data)}`;
-            setRiskViolation(null);
-          } else {
-            if (orderJson.risk_violation_code) {
-              setRiskViolation({
-                risk_violation_code: orderJson.risk_violation_code,
-                details: orderJson.details ?? {},
-              });
-              setError(orderJson.error || 'Trade rejected by risk settings.');
-              setActiveAgentId(null);
-              setExecuting(false);
-              return;
-            }
-            directTradeResult = `\n\nBitso API order attempt result: ${orderJson.error || 'Failed'}. Please report the actual outcome.`;
-          }
-        } catch (orderErr: any) {
-          directTradeResult = `\n\nDirect Bitso API order attempt failed: ${orderErr.message}`;
+          setError(orderJson.error || 'Trade rejected by risk settings.');
+          setExecuting(false);
+          return;
         }
+
+        setError(orderJson.error || 'Trade execution failed.');
+        setExecuting(false);
+        return;
       }
 
-      const result = await callAIAgent(
-        `Execute a ${side} order for ${pairLabel}. Amount: ${amount}. Entry price: ${analysisResult.recommended_entry_price ?? 'market'}. Stop-loss: ${analysisResult.stop_loss_price ?? 'none'}. This trade has been approved by the user.${directTradeResult}`,
-        TRADE_EXECUTION_AGENT
-      );
+      const orderPayload = orderJson.data ?? {};
+      const orderId = String(orderPayload.oid ?? orderPayload.order_id ?? '');
 
-      if (result.success) {
-        const parsed = result?.response?.result ?? result?.response ?? {};
-        const data: TradeResult = typeof parsed === 'string' ? (() => { try { return JSON.parse(parsed); } catch { return { message: parsed }; } })() : parsed;
-        setTradeResult(data);
-
-        const lastSignal = recentSignals[0];
-        if (lastSignal?._id) {
-          await fetch('/api/trade_signals', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: lastSignal._id, status: 'approved' }),
-          });
-        }
-
-        await fetch('/api/trades', {
-          method: 'POST',
+      if (lastSignal?._id) {
+        await fetch('/api/trade_signals', {
+          method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            signal_id: lastSignal?._id ?? '',
-            pair: selectedPair,
-            side: data.side ?? side,
-            amount: data.amount ?? amount,
-            price: data.price ?? '',
-            total_value: data.total_value ?? '',
-            bitso_order_id: data.order_id ?? '',
-            result_status: data.status ?? 'unknown',
-            risk_check_details: data.risk_check_details ?? '',
-          }),
+          body: JSON.stringify({ id: lastSignal._id, status: 'approved' }),
         });
-        await fetchSignals();
-        await fetchTrades();
-        // Refresh balances after trade
-        if (hasApiKeys) { fetchBalances(); }
-      } else {
-        setError('Trade execution failed. Please try again.');
+      }
+
+      await fetch('/api/trades', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          signal_id: lastSignal?._id ?? '',
+          pair: selectedPair,
+          side,
+          amount,
+          price: orderPayload.price ?? analysisResult.recommended_entry_price ?? '',
+          total_value: orderPayload.minor ?? '',
+          bitso_order_id: orderId,
+          result_status: orderPayload.idempotent_replay ? 'replayed' : 'success',
+          risk_check_details: orderPayload.idempotent_replay
+            ? 'Existing order returned via idempotency key replay.'
+            : 'Executed once via /api/bitso/order.',
+          idempotency_key: idempotencyKey,
+        }),
+      });
+
+      setTradeResult({
+        status: 'success',
+        order_id: orderId,
+        idempotency_key: idempotencyKey,
+        pair: selectedPair.replace('_', '/').toUpperCase(),
+        side,
+        amount,
+        price: String(orderPayload.price ?? analysisResult.recommended_entry_price ?? ''),
+        total_value: String(orderPayload.minor ?? ''),
+        risk_check_passed: true,
+        risk_check_details: orderPayload.idempotent_replay
+          ? 'Order was replay-safe: existing order id returned.'
+          : 'Order was executed exactly once by backend order route.',
+        backend_action: 'POST /api/bitso/order',
+        message: orderPayload.idempotent_replay
+          ? 'Order already existed for this action. Existing order id returned.'
+          : 'Trade submitted successfully with one backend execution.',
+      });
+
+      await fetchSignals();
+      await fetchTrades();
+      if (hasApiKeys) {
+        fetchBalances();
       }
     } catch (err: any) {
       setError(err?.message ?? 'An error occurred during trade execution.');
     }
-    setActiveAgentId(null);
     setExecuting(false);
   };
 

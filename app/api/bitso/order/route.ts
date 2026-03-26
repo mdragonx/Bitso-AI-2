@@ -89,10 +89,34 @@ async function handler(req: NextRequest) {
     });
 
     const body = await req.json();
-    const { book, side, type = 'market', major, minor, price } = body;
+    const { book, side, type = 'market', major, minor, price, idempotency_key } = body;
 
     if (!book || !side) {
       return NextResponse.json({ success: false, error: 'book and side are required' }, { status: 400 });
+    }
+
+
+    if (idempotency_key) {
+      const TradeModel = await getTradeModel();
+      const existingTrade = await TradeModel.findOne({
+        owner_user_id: ownerUserId,
+        idempotency_key,
+        bitso_order_id: { $ne: '' },
+      });
+
+      if (existingTrade) {
+        return NextResponse.json({
+          success: true,
+          data: {
+            oid: existingTrade.bitso_order_id,
+            book: existingTrade.pair,
+            side: existingTrade.side,
+            major: existingTrade.amount,
+            minor: existingTrade.total_value,
+            idempotent_replay: true,
+          },
+        });
+      }
     }
 
     const RiskSettingModel = await getRiskSettingModel();

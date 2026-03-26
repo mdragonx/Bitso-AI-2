@@ -33,6 +33,8 @@ interface TradeResult {
   risk_check_passed?: boolean;
   risk_check_details?: string;
   message?: string;
+  backend_action?: string;
+  idempotency_key?: string;
 }
 
 interface RecentSignal {
@@ -327,7 +329,7 @@ export default function DashboardSection({
 
             {canExecute && !showSample && (
               <div className="border-t border-border pt-4 flex items-center gap-3">
-                <Button onClick={() => setShowConfirm(true)} className="bg-primary text-primary-foreground hover:bg-primary/90 tracking-wider text-xs uppercase">Execute Trade</Button>
+                <Button onClick={() => setShowConfirm(true)} className="bg-primary text-primary-foreground hover:bg-primary/90 tracking-wider text-xs uppercase">Execute Trade (One Order)</Button>
                 <Button variant="outline" onClick={onRejectSignal} className="tracking-wider text-xs uppercase border-border">Reject Signal</Button>
               </div>
             )}
@@ -350,7 +352,7 @@ export default function DashboardSection({
         return (
           <Card className="bg-card border-primary/30">
             <CardHeader>
-              <CardTitle className="font-serif tracking-wider text-base">Confirm Trade Execution</CardTitle>
+              <CardTitle className="font-serif tracking-wider text-base">Confirm Single Trade Execution</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-4 text-sm">
@@ -411,10 +413,11 @@ export default function DashboardSection({
 
               <div className="flex gap-3">
                 <Button onClick={() => { onExecuteTrade(tradeAmount); setShowConfirm(false); }} disabled={executing || !tradeAmount} className="bg-primary text-primary-foreground hover:bg-primary/90 tracking-wider text-xs uppercase">
-                  {executing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Executing...</> : 'Confirm & Execute'}
+                  {executing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sending single backend action...</> : 'Confirm & Execute Once'}
                 </Button>
                 <Button variant="outline" onClick={() => setShowConfirm(false)} className="border-border tracking-wider text-xs uppercase">Cancel</Button>
               </div>
+              <p className="text-[11px] text-muted-foreground">This sends one backend order request and returns one resulting order id.</p>
             </CardContent>
           </Card>
         );
@@ -427,7 +430,8 @@ export default function DashboardSection({
               {tradeResult.status === 'success' ? <CheckCircle className="h-5 w-5 text-emerald-400" /> : <XCircle className="h-5 w-5 text-destructive" />}
               <p className="font-medium text-sm">{tradeResult.message ?? (tradeResult.status === 'success' ? 'Trade executed successfully' : 'Trade failed')}</p>
             </div>
-            {tradeResult.order_id && <p className="text-xs text-muted-foreground">Order ID: {tradeResult.order_id}</p>}
+            {tradeResult.order_id && <p className="text-xs text-muted-foreground">Resulting Order ID: {tradeResult.order_id}</p>}
+            {tradeResult.backend_action && <p className="text-xs text-muted-foreground">Backend action: {tradeResult.backend_action}</p>}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
               {tradeResult.pair && <div><span className="text-muted-foreground">Pair:</span> {tradeResult.pair}</div>}
               {tradeResult.side && <div><span className="text-muted-foreground">Side:</span> {tradeResult.side}</div>}
