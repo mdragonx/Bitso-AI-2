@@ -83,6 +83,10 @@ interface DashboardProps {
   hasApiKeys: boolean;
   feeTier: FeeTierInfo;
   behavioralPosition: string;
+  riskViolation?: {
+    risk_violation_code: string;
+    details?: Record<string, any>;
+  } | null;
 }
 
 const PAIRS = ['btc_mxn', 'eth_mxn', 'xrp_mxn', 'ltc_mxn'];
@@ -160,7 +164,7 @@ const BEHAVIOR_LABELS: Record<string, { label: string; color: string }> = {
 export default function DashboardSection({
   selectedPair, onPairChange, analysisResult, tradeResult, analyzing, executing,
   onRunAnalysis, onExecuteTrade, onRejectSignal, recentSignals, error, showSample,
-  balances, ticker, balanceLoading, hasApiKeys, feeTier, behavioralPosition,
+  balances, ticker, balanceLoading, hasApiKeys, feeTier, behavioralPosition, riskViolation,
 }: DashboardProps) {
   const [tradeAmount, setTradeAmount] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
@@ -359,6 +363,26 @@ export default function DashboardSection({
                 <Label className="text-[10px] uppercase tracking-widest text-muted-foreground">Trade Amount ({pairBase})</Label>
                 <Input type="text" placeholder={`e.g. 0.015 ${pairBase}`} value={tradeAmount} onChange={(e) => setTradeAmount(e.target.value)} className="bg-input border-border mt-1" />
               </div>
+              {riskViolation && (
+                <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs">
+                  <p className="font-medium text-destructive mb-1">Risk constraint violation: {riskViolation.risk_violation_code}</p>
+                  {riskViolation.details?.requested_book && (
+                    <p className="text-destructive/90">Requested pair: {String(riskViolation.details.requested_book).toUpperCase().replace('_', '/')}</p>
+                  )}
+                  {riskViolation.details?.allowed_pairs && (
+                    <p className="text-destructive/90">Allowed pairs: {Array.isArray(riskViolation.details.allowed_pairs) ? riskViolation.details.allowed_pairs.map((p: string) => String(p).toUpperCase().replace('_', '/')).join(', ') : ''}</p>
+                  )}
+                  {typeof riskViolation.details?.requested_notional === 'number' && (
+                    <p className="text-destructive/90">Requested notional: ${riskViolation.details.requested_notional.toLocaleString(undefined, { maximumFractionDigits: 2 })} MXN</p>
+                  )}
+                  {typeof riskViolation.details?.max_trade_amount === 'number' && (
+                    <p className="text-destructive/90">Max per trade: ${riskViolation.details.max_trade_amount.toLocaleString(undefined, { maximumFractionDigits: 2 })} MXN</p>
+                  )}
+                  {typeof riskViolation.details?.todays_notional === 'number' && typeof riskViolation.details?.daily_limit === 'number' && (
+                    <p className="text-destructive/90">Used today: ${riskViolation.details.todays_notional.toLocaleString(undefined, { maximumFractionDigits: 2 })} / ${riskViolation.details.daily_limit.toLocaleString(undefined, { maximumFractionDigits: 2 })} MXN</p>
+                  )}
+                </div>
+              )}
 
               {/* Commission / Cost Breakdown */}
               {amountNum > 0 && entryPriceNum > 0 && (

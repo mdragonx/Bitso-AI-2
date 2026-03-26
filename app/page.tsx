@@ -229,6 +229,11 @@ interface TradeResult {
   message?: string;
 }
 
+interface RiskViolation {
+  risk_violation_code: string;
+  details?: Record<string, any>;
+}
+
 export default function Page() {
   const [activeScreen, setActiveScreen] = useState('dashboard');
   const [selectedPair, setSelectedPair] = useState('btc_mxn');
@@ -240,6 +245,7 @@ export default function Page() {
   const [analyzing, setAnalyzing] = useState(false);
   const [executing, setExecuting] = useState(false);
   const [error, setError] = useState('');
+  const [riskViolation, setRiskViolation] = useState<RiskViolation | null>(null);
 
   const [recentSignals, setRecentSignals] = useState<any[]>([]);
   const [trades, setTrades] = useState<any[]>([]);
@@ -336,6 +342,7 @@ export default function Page() {
     setError('');
     setAnalysisResult(null);
     setTradeResult(null);
+    setRiskViolation(null);
     setActiveAgentId(MARKET_ANALYSIS_AGENT);
 
     try {
@@ -408,6 +415,7 @@ export default function Page() {
     if (!analysisResult) return;
     setExecuting(true);
     setError('');
+    setRiskViolation(null);
     setActiveAgentId(TRADE_EXECUTION_AGENT);
 
     try {
@@ -431,7 +439,18 @@ export default function Page() {
           const orderJson = await orderRes.json();
           if (orderJson.success) {
             directTradeResult = `\n\nThe order has been placed successfully on Bitso. Order response: ${JSON.stringify(orderJson.data)}`;
+            setRiskViolation(null);
           } else {
+            if (orderJson.risk_violation_code) {
+              setRiskViolation({
+                risk_violation_code: orderJson.risk_violation_code,
+                details: orderJson.details ?? {},
+              });
+              setError(orderJson.error || 'Trade rejected by risk settings.');
+              setActiveAgentId(null);
+              setExecuting(false);
+              return;
+            }
             directTradeResult = `\n\nBitso API order attempt result: ${orderJson.error || 'Failed'}. Please report the actual outcome.`;
           }
         } catch (orderErr: any) {
@@ -561,6 +580,7 @@ export default function Page() {
                     hasApiKeys={hasApiKeys}
                     feeTier={feeTier}
                     behavioralPosition={behavioralPosition}
+                    riskViolation={riskViolation}
                   />
                 )}
                 {activeScreen === 'history' && (
