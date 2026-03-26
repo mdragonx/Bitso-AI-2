@@ -1,15 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSessionFromRequest } from '@/lib/auth';
+import { getSessionValidationFromRequest } from '@/lib/auth';
 import { findUserById } from '@/lib/repositories/userRepository';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   try {
-    const session = getSessionFromRequest(req);
-    if (!session) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    const validation = getSessionValidationFromRequest(req);
+    if (!validation.session) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: validation.errorCode === 'SESSION_EXPIRED' ? 'Session expired. Please sign in again.' : 'Unauthorized',
+          error_code: validation.errorCode,
+        },
+        { status: 401 }
+      );
     }
+
+    const session = validation.session;
 
     const user = await findUserById(session.userId);
 

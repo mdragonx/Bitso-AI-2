@@ -14,6 +14,11 @@ interface SessionPayload {
   exp: number;
 }
 
+interface SessionValidationResult {
+  session: SessionPayload | null;
+  errorCode: 'UNAUTHORIZED' | 'SESSION_EXPIRED';
+}
+
 function base64UrlEncode(input: string) {
   return Buffer.from(input)
     .toString('base64')
@@ -27,7 +32,6 @@ function base64UrlDecode(input: string) {
   const normalized = input.replace(/-/g, '+').replace(/_/g, '/');
   return Buffer.from(normalized + (pad ? '='.repeat(4 - pad) : ''), 'base64').toString('utf8');
 }
-
 
 function sign(data: string) {
   return createHmac('sha256', SECRET).update(data).digest('hex');
@@ -43,24 +47,38 @@ export function createSessionToken(userId: string, email: string) {
   return `${encodedPayload}.${sign(encodedPayload)}`;
 }
 
-export function readSessionToken(token: string | undefined): SessionPayload | null {
-  if (!token) return null;
+export function validateSessionToken(token: string | undefined): SessionValidationResult {
+  if (!token) return { session: null, errorCode: 'UNAUTHORIZED' };
+
   const [encodedPayload, sig] = token.split('.');
-  if (!encodedPayload || !sig) return null;
-  if (sign(encodedPayload) !== sig) return null;
+  if (!encodedPayload || !sig) return { session: null, errorCode: 'UNAUTHORIZED' };
+  if (sign(encodedPayload) !== sig) return { session: null, errorCode: 'UNAUTHORIZED' };
 
   try {
     const payload = JSON.parse(base64UrlDecode(encodedPayload)) as SessionPayload;
-    if (!payload.exp || payload.exp < Math.floor(Date.now() / 1000)) return null;
-    if (!payload.userId) return null;
-    return payload;
+    if (!payload.userId || !payload.exp) {
+      return { session: null, errorCode: 'UNAUTHORIZED' };
+    }
+    if (payload.exp < Math.floor(Date.now() / 1000)) {
+      return { session: null, errorCode: 'SESSION_EXPIRED' };
+    }
+
+    return { session: payload, errorCode: 'UNAUTHORIZED' };
   } catch {
-    return null;
+    return { session: null, errorCode: 'UNAUTHORIZED' };
   }
 }
 
+export function readSessionToken(token: string | undefined): SessionPayload | null {
+  return validateSessionToken(token).session;
+}
+
+export function getSessionValidationFromRequest(req: NextRequest) {
+  return validateSessionToken(req.cookies.get(AUTH_COOKIE_NAME)?.value);
+}
+
 export function getSessionFromRequest(req: NextRequest) {
-  return readSessionToken(req.cookies.get(AUTH_COOKIE_NAME)?.value);
+  return getSessionValidationFromRequest(req).session;
 }
 
 export function getCurrentUserId(req: NextRequest) {
@@ -70,10 +88,18 @@ export function getCurrentUserId(req: NextRequest) {
 
 export function withAuth(handler: (req: NextRequest) => Promise<NextResponse>) {
   return async (req: NextRequest) => {
-    const session = getSessionFromRequest(req);
-    if (!session) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    const validation = getSessionValidationFromRequest(req);
+    if (!validation.session) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: validation.errorCode === 'SESSION_EXPIRED' ? 'Session expired. Please sign in again.' : 'Unauthorized',
+          error_code: validation.errorCode,
+        },
+        { status: 401 }
+      );
     }
+
     return handler(req);
   };
 }

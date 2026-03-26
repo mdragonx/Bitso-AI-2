@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, CheckCircle, AlertTriangle, Shield, Target, Zap } from 'lucide-react';
+import { apiFetch, apiFetchJson } from '@/lib/apiClient';
 
 interface RiskSettingsProps {
   showSample: boolean;
@@ -74,8 +75,7 @@ export default function RiskSettingsSection({ showSample, onSettingsChanged }: R
   const loadSettings = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/risk_settings');
-      const json = await res.json();
+      const json = await apiFetchJson<any>('/api/risk_settings');
       if (json.success && Array.isArray(json.data) && json.data.length > 0) {
         const s = json.data[0];
         setSettingsId(s._id ?? null);
@@ -109,13 +109,13 @@ export default function RiskSettingsSection({ showSample, onSettingsChanged }: R
 
       let res;
       if (settingsId) {
-        res = await fetch('/api/risk_settings', {
+        res = await apiFetch('/api/risk_settings', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: settingsId, ...payload }),
         });
       } else {
-        res = await fetch('/api/risk_settings', {
+        res = await apiFetch('/api/risk_settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),

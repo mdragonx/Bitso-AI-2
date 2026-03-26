@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { withAuth } from '@/lib/auth';
 
 type ContextItem = {
   type: 'news' | 'sentiment';
@@ -90,7 +91,7 @@ async function fetchSentimentItems(): Promise<ContextItem[]> {
   }
 }
 
-export async function GET() {
+async function handler(_req: NextRequest) {
   try {
     const [newsItems, sentimentItems] = await Promise.all([fetchNewsItems(), fetchSentimentItems()]);
     const items = [...sentimentItems, ...newsItems]
@@ -113,3 +114,7 @@ export async function GET() {
     return NextResponse.json({ success: false, error: error?.message ?? 'Failed to fetch market context' }, { status: 500 });
   }
 }
+
+
+const protectedHandler = withAuth(handler);
+export const GET = protectedHandler;
