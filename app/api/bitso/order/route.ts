@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentUserId, withAuth } from '@/lib/auth';
-import getBitsoCredentialModel from '@/models/BitsoCredential';
-import getRiskSettingModel from '@/models/RiskSetting';
-import getTradeModel from '@/models/Trade';
-import { decryptSecret, migratePlaintextBitsoSecrets } from '@/lib/cryptoSecrets';
 import crypto from 'crypto';
+import { getCurrentUserId, withAuth } from '@/lib/auth';
+import { decryptSecret, migratePlaintextBitsoSecrets } from '@/lib/cryptoSecrets';
+import { persistRejectedTradeAttempt, validateExecutionRiskRules } from '@/lib/services/riskValidationService';
+import getBitsoCredentialModel from '@/models/BitsoCredential';
+import getTradeModel from '@/models/Trade';
 
 function createBitsoAuthHeader(apiKey: string, apiSecret: string, method: string, path: string, body: string = '') {
   const nonce = Date.now().toString();
@@ -14,23 +14,10 @@ function createBitsoAuthHeader(apiKey: string, apiSecret: string, method: string
 }
 
 function normalizeBook(book: string) {
-  return (book || '').trim().toLowerCase().replace('/', '_');
+  return String(book || '').trim().toLowerCase().replace('/', '_');
 }
 
-function toSafeNumber(value: unknown): number {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-  if (typeof value === 'string') {
-    const parsed = parseFloat(value.replace(/[^0-9.\-]/g, ''));
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-  return 0;
-}
-
-function riskViolation(
-  risk_violation_code: string,
-  error: string,
-  details: Record<string, unknown>
-) {
+function riskViolation(risk_violation_code: string, error: string, details: Record<string, unknown>) {
   return NextResponse.json(
     {
       success: false,
@@ -40,33 +27,6 @@ function riskViolation(
     },
     { status: 400 }
   );
-}
-
-async function estimateOrderNotionalMXN(payload: {
-  book: string;
-  type?: string;
-  major?: string | number;
-  minor?: string | number;
-  price?: string | number;
-}) {
-  const major = toSafeNumber(payload.major);
-  const minor = toSafeNumber(payload.minor);
-  const price = toSafeNumber(payload.price);
-
-  if (minor > 0) return minor;
-
-  if (major <= 0) return 0;
-
-  if (price > 0) return major * price;
-
-  if ((payload.type || 'market') === 'market') {
-    const tickerRes = await fetch(`https://bitso.com/api/v3/ticker/?book=${normalizeBook(payload.book)}`);
-    const tickerJson = await tickerRes.json();
-    const last = toSafeNumber(tickerJson?.payload?.last);
-    if (last > 0) return major * last;
-  }
-
-  return 0;
 }
 
 async function handler(req: NextRequest) {
@@ -95,7 +55,6 @@ async function handler(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'book and side are required' }, { status: 400 });
     }
 
-
     if (idempotency_key) {
       const TradeModel = await getTradeModel();
       const existingTrade = await TradeModel.findOne({
@@ -119,72 +78,36 @@ async function handler(req: NextRequest) {
       }
     }
 
-    const RiskSettingModel = await getRiskSettingModel();
-    const riskSetting = await RiskSettingModel.findOne({ owner_user_id: ownerUserId });
+    const normalizedBook = normalizeBook(book);
+    const riskCheck = await validateExecutionRiskRules({
+      ownerUserId,
+      book: normalizedBook,
+      side,
+      type,
+      major,
+      minor,
+      price,
+      entryPrice: price,
+      stopLossPrice: body.stop_loss_price,
+      takeProfitPrice: body.take_profit_price,
+    });
 
-    if (riskSetting) {
-      const requestedBook = normalizeBook(book);
-      const allowedPairs = String(riskSetting.allowed_pairs || '')
-        .split(',')
-        .map((pair: string) => normalizeBook(pair))
-        .filter(Boolean);
+    if (!riskCheck.ok) {
+      await persistRejectedTradeAttempt({
+        ownerUserId,
+        idempotencyKey: idempotency_key,
+        pair: normalizedBook,
+        side,
+        amount: major,
+        price,
+        totalValue: minor,
+        stopLossPrice: body.stop_loss_price,
+        takeProfitPrice: body.take_profit_price,
+        violationCode: riskCheck.code,
+        violationMessage: riskCheck.message,
+      });
 
-      if (allowedPairs.length > 0 && !allowedPairs.includes(requestedBook)) {
-        return riskViolation(
-          'PAIR_NOT_ALLOWED',
-          'Selected pair is not allowed by your risk settings.',
-          {
-            requested_book: requestedBook,
-            allowed_pairs: allowedPairs,
-          }
-        );
-      }
-
-      const requestedNotional = await estimateOrderNotionalMXN({ book, type, major, minor, price });
-      const maxTradeAmount = toSafeNumber(riskSetting.max_trade_amount);
-
-      if (maxTradeAmount > 0 && requestedNotional > maxTradeAmount) {
-        return riskViolation(
-          'MAX_TRADE_AMOUNT_EXCEEDED',
-          'Requested trade exceeds max trade amount.',
-          {
-            requested_notional: requestedNotional,
-            max_trade_amount: maxTradeAmount,
-            type,
-            major,
-            minor,
-            price,
-          }
-        );
-      }
-
-      const TradeModel = await getTradeModel();
-      const startOfDay = new Date();
-      startOfDay.setUTCHours(0, 0, 0, 0);
-      const endOfDay = new Date();
-      endOfDay.setUTCHours(23, 59, 59, 999);
-
-      const todaysTrades = await TradeModel.find({
-        owner_user_id: ownerUserId,
-        createdAt: { $gte: startOfDay, $lte: endOfDay },
-        result_status: { $in: ['success', 'filled', 'completed'] },
-      }).select('total_value');
-
-      const todaysNotional = todaysTrades.reduce((sum: number, trade: any) => sum + toSafeNumber(trade.total_value), 0);
-      const dailyLimit = toSafeNumber(riskSetting.daily_limit);
-
-      if (dailyLimit > 0 && todaysNotional + requestedNotional > dailyLimit) {
-        return riskViolation(
-          'DAILY_LIMIT_EXCEEDED',
-          'Requested trade exceeds your daily limit.',
-          {
-            todays_notional: todaysNotional,
-            requested_notional: requestedNotional,
-            projected_notional: todaysNotional + requestedNotional,
-            daily_limit: dailyLimit,
-          }
-        );
-      }
+      return riskViolation(riskCheck.code, riskCheck.message, riskCheck.details);
     }
 
     const orderPayload: any = { book, side, type };
@@ -199,7 +122,7 @@ async function handler(req: NextRequest) {
     const response = await fetch('https://bitso.com/api/v3/orders/', {
       method: 'POST',
       headers: {
-        'Authorization': authHeader,
+        Authorization: authHeader,
         'Content-Type': 'application/json',
       },
       body: bodyStr,

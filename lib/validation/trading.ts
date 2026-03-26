@@ -100,6 +100,9 @@ export const createRiskSettingsSchema = z
     allowed_pairs_list: z.array(z.string()).optional(),
     behavioral_position: z.enum(['conservative', 'moderate', 'aggressive']).optional(),
     fee_tier: z.enum(['starter', 'tier1', 'tier2', 'tier3', 'tier4', 'tier5']).optional(),
+    cooldown_minutes: z.number().nonnegative().optional(),
+    throttle_max_attempts: z.number().int().nonnegative().optional(),
+    throttle_window_minutes: z.number().int().positive().optional(),
   })
   .transform((value) => {
     const allowedPairsList = Array.isArray(value.allowed_pairs)

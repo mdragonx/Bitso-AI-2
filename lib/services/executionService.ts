@@ -1,9 +1,9 @@
 import crypto from 'crypto';
 import getBitsoCredentialModel from '@/models/BitsoCredential';
-import getRiskSettingModel from '@/models/RiskSetting';
 import getTradeModel from '@/models/Trade';
 import { decryptSecret, migratePlaintextBitsoSecrets } from '@/lib/cryptoSecrets';
-import { fetchBitsoBalances, fetchBitsoTickerLast, submitBitsoOrder } from '@/lib/adapters/bitsoApiAdapter';
+import { fetchBitsoBalances, submitBitsoOrder } from '@/lib/adapters/bitsoApiAdapter';
+import { persistRejectedTradeAttempt, validateExecutionRiskRules } from '@/lib/services/riskValidationService';
 
 export type ExecuteRecommendationInput = {
   recommendation: {
@@ -50,100 +50,14 @@ function splitCurrenciesFromBook(book: string) {
   return { base: base || '', quote: quote || '' };
 }
 
-async function estimateNotionalMXN(params: {
-  book: string;
-  type: 'market' | 'limit';
-  major?: string;
-  minor?: string;
-  price?: string;
-}) {
-  const major = toSafeNumber(params.major);
-  const minor = toSafeNumber(params.minor);
-  const price = toSafeNumber(params.price);
-
-  if (minor > 0) return minor;
-  if (major <= 0) return 0;
-  if (price > 0) return major * price;
-
-  if (params.type === 'market') {
-    const last = toSafeNumber(await fetchBitsoTickerLast(normalizeBook(params.book)));
-    if (last > 0) return major * last;
-  }
-
-  return 0;
-}
-
-async function validateRiskAndBalance(params: {
-  ownerUserId: string;
+async function validateBalanceOnly(params: {
   apiKey: string;
   apiSecret: string;
   book: string;
   side: 'buy' | 'sell';
-  type: 'market' | 'limit';
   major?: string;
-  minor?: string;
-  price?: string;
+  requestedNotional?: number;
 }) {
-  const RiskSettingModel = await getRiskSettingModel();
-  const riskSetting = await RiskSettingModel.findOne({ owner_user_id: params.ownerUserId });
-  const normalizedBook = normalizeBook(params.book);
-  const requestedNotional = await estimateNotionalMXN(params);
-
-  if (riskSetting) {
-    const allowedPairs = String(riskSetting.allowed_pairs || '')
-      .split(',')
-      .map((pair: string) => normalizeBook(pair))
-      .filter(Boolean);
-
-    if (allowedPairs.length > 0 && !allowedPairs.includes(normalizedBook)) {
-      return {
-        ok: false,
-        code: 'PAIR_NOT_ALLOWED',
-        message: 'Selected pair is not allowed by your risk settings.',
-        details: { requested_book: normalizedBook, allowed_pairs: allowedPairs },
-      };
-    }
-
-    const maxTradeAmount = toSafeNumber(riskSetting.max_trade_amount);
-    if (maxTradeAmount > 0 && requestedNotional > maxTradeAmount) {
-      return {
-        ok: false,
-        code: 'MAX_TRADE_AMOUNT_EXCEEDED',
-        message: 'Requested trade exceeds max trade amount.',
-        details: { requested_notional: requestedNotional, max_trade_amount: maxTradeAmount },
-      };
-    }
-
-    const TradeModel = await getTradeModel();
-    const startOfDay = new Date();
-    startOfDay.setUTCHours(0, 0, 0, 0);
-    const endOfDay = new Date();
-    endOfDay.setUTCHours(23, 59, 59, 999);
-
-    const todaysTrades = await TradeModel.find({
-      owner_user_id: params.ownerUserId,
-      createdAt: { $gte: startOfDay, $lte: endOfDay },
-      status: { $in: ['submitted', 'filled'] },
-    }).select('total_value');
-
-    const todaysNotional = todaysTrades.reduce((sum: number, trade: any) => sum + toSafeNumber(trade.total_value), 0);
-    const dailyLimit = toSafeNumber(riskSetting.daily_limit);
-
-    if (dailyLimit > 0 && todaysNotional + requestedNotional > dailyLimit) {
-      return {
-        ok: false,
-        code: 'DAILY_LIMIT_EXCEEDED',
-        message: 'Requested trade exceeds your daily limit.',
-        details: {
-          todays_notional: todaysNotional,
-          requested_notional: requestedNotional,
-          projected_notional: todaysNotional + requestedNotional,
-          daily_limit: dailyLimit,
-        },
-      };
-    }
-  }
-
   const balancesResult = await fetchBitsoBalances(params.apiKey, params.apiSecret);
   if (!balancesResult.success) {
     return {
@@ -156,7 +70,7 @@ async function validateRiskAndBalance(params: {
 
   const { base, quote } = splitCurrenciesFromBook(params.book);
   const major = toSafeNumber(params.major);
-  const notional = requestedNotional;
+  const notional = params.requestedNotional ?? 0;
 
   const findAvailable = (currency: string) => {
     const match = balancesResult.balances.find((entry) => entry.currency.toLowerCase() === currency.toLowerCase());
@@ -187,7 +101,7 @@ async function validateRiskAndBalance(params: {
     }
   }
 
-  return { ok: true, details: { requested_notional: requestedNotional } };
+  return { ok: true, details: {} };
 }
 
 async function submitOrderWithRetry(params: {
@@ -326,23 +240,34 @@ export async function executeApprovedRecommendation(ownerUserId: string, input: 
     throw error;
   }
 
-  const riskCheck = await validateRiskAndBalance({
+  const riskCheck = await validateExecutionRiskRules({
     ownerUserId,
-    apiKey: credential.api_key,
-    apiSecret,
     book: normalizedBook,
     side,
     type: orderType,
     major: input.execution.amount_major,
     minor: input.execution.amount_minor,
     price: input.execution.price,
+    entryPrice: input.execution.price || recommendation.recommended_entry_price,
+    stopLossPrice: recommendation.stop_loss_price,
+    takeProfitPrice: recommendation.recommended_exit_price,
   });
 
   if (!riskCheck.ok) {
-    tradeDoc.status = 'failed';
-    tradeDoc.result_status = 'failed';
-    tradeDoc.risk_check_details = `${riskCheck.code}: ${riskCheck.message}`;
-    await tradeDoc.save();
+    tradeDoc = await persistRejectedTradeAttempt({
+      ownerUserId,
+      idempotencyKey,
+      signalId: recommendation.signal_id,
+      pair: normalizedBook,
+      side,
+      amount: input.execution.amount_major,
+      price: input.execution.price || recommendation.recommended_entry_price,
+      totalValue: input.execution.amount_minor,
+      stopLossPrice: recommendation.stop_loss_price,
+      takeProfitPrice: recommendation.recommended_exit_price,
+      violationCode: riskCheck.code,
+      violationMessage: riskCheck.message,
+    });
 
     return {
       success: false,
@@ -350,6 +275,31 @@ export async function executeApprovedRecommendation(ownerUserId: string, input: 
       risk_violation_code: riskCheck.code,
       error: riskCheck.message,
       details: riskCheck.details,
+      trade: tradeDoc,
+    };
+  }
+
+  const balanceCheck = await validateBalanceOnly({
+    apiKey: credential.api_key,
+    apiSecret,
+    book: normalizedBook,
+    side,
+    major: input.execution.amount_major,
+    requestedNotional: Number(riskCheck.details.requested_notional || 0),
+  });
+
+  if (!balanceCheck.ok) {
+    tradeDoc.status = 'failed';
+    tradeDoc.result_status = 'failed';
+    tradeDoc.risk_check_details = `${balanceCheck.code}: ${balanceCheck.message}`;
+    await tradeDoc.save();
+
+    return {
+      success: false,
+      idempotency_key: idempotencyKey,
+      risk_violation_code: balanceCheck.code,
+      error: balanceCheck.message,
+      details: balanceCheck.details,
       trade: tradeDoc,
     };
   }
