@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { getSessionFromRequest } from '@/lib/auth'
+import { getLifecycleMetricsSnapshot } from '@/lib/observability/lifecycle'
 import { resolveSchedulerProviderName } from '@/lib/scheduler/providerFactory'
 import { getSchedulerMetricsSnapshot } from '@/lib/scheduler/observability'
 import { getSchedulerWorkerState } from '@/lib/scheduler/worker'
@@ -32,6 +33,7 @@ export async function GET(request: NextRequest) {
     },
     workerHeartbeat: getSchedulerWorkerState(),
     metrics: getSchedulerMetricsSnapshot(),
+    lifecycleMetrics: getLifecycleMetricsSnapshot(),
     generatedAt: new Date().toISOString(),
   })
 }
