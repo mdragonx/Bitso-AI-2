@@ -115,6 +115,15 @@ interface DashboardProps {
     risk_violation_code: string;
     details?: Record<string, any>;
   } | null;
+  recentTrades: Array<{
+    _id?: string;
+    pair?: string;
+    side?: string;
+    amount?: string;
+    total_value?: string;
+    result_status?: string;
+    createdAt?: string;
+  }>;
 }
 
 const PAIRS = ['btc_mxn', 'eth_mxn', 'xrp_mxn', 'ltc_mxn'];
@@ -203,10 +212,11 @@ const BEHAVIOR_LABELS: Record<string, { label: string; color: string }> = {
 export default function DashboardSection({
   selectedPair, onPairChange, analysisResult, tradeResult, analyzing, executing,
   onRunAnalysis, onExecuteTrade, onRejectSignal, recentSignals, error, showSample,
-  balances, ticker, balanceLoading, hasApiKeys, feeTier, behavioralPosition, riskViolation,
+  balances, ticker, balanceLoading, hasApiKeys, feeTier, behavioralPosition, riskViolation, recentTrades,
 }: DashboardProps) {
   const [tradeAmount, setTradeAmount] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
+  const [tradeAmountError, setTradeAmountError] = useState('');
 
   const data = showSample ? SAMPLE_ANALYSIS : analysisResult;
   const signals = showSample ? SAMPLE_SIGNALS : recentSignals;
@@ -221,6 +231,7 @@ export default function DashboardSection({
   const displayTicker = showSample ? SAMPLE_TICKER : ticker;
   const signalUpper = (data?.signal ?? '').toUpperCase();
   const canExecute = signalUpper === 'BUY' || signalUpper === 'SELL';
+  const dashboardTrades = Array.isArray(recentTrades) ? recentTrades.slice(0, 5) : [];
 
   const pairBase = selectedPair.split('_')[0]?.toUpperCase() || '';
 
@@ -314,6 +325,14 @@ export default function DashboardSection({
           <CardContent className="p-4 flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-destructive" />
             <p className="text-sm text-destructive">{error}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {!data && !analyzing && (
+        <Card className="bg-card border-border">
+          <CardContent className="p-6 text-sm text-muted-foreground">
+            No recommendation yet. Run analysis to generate a trade signal and recommendation card.
           </CardContent>
         </Card>
       )}
@@ -423,7 +442,17 @@ export default function DashboardSection({
               </div>
               <div>
                 <Label className="text-[10px] uppercase tracking-widest text-muted-foreground">Trade Amount ({pairBase})</Label>
-                <Input type="text" placeholder={`e.g. 0.015 ${pairBase}`} value={tradeAmount} onChange={(e) => setTradeAmount(e.target.value)} className="bg-input border-border mt-1" />
+                <Input
+                  type="text"
+                  placeholder={`e.g. 0.015 ${pairBase}`}
+                  value={tradeAmount}
+                  onChange={(e) => {
+                    setTradeAmount(e.target.value);
+                    if (tradeAmountError) setTradeAmountError('');
+                  }}
+                  className="bg-input border-border mt-1"
+                />
+                {tradeAmountError && <p className="text-xs text-destructive mt-1">{tradeAmountError}</p>}
               </div>
               {riskViolation && (
                 <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs">
@@ -472,7 +501,19 @@ export default function DashboardSection({
               )}
 
               <div className="flex gap-3">
-                <Button onClick={() => { onExecuteTrade(tradeAmount); setShowConfirm(false); }} disabled={executing || !tradeAmount} className="bg-primary text-primary-foreground hover:bg-primary/90 tracking-wider text-xs uppercase">
+                <Button
+                  onClick={() => {
+                    const parsed = Number(tradeAmount);
+                    if (!Number.isFinite(parsed) || parsed <= 0) {
+                      setTradeAmountError('Enter a valid trade amount greater than 0.');
+                      return;
+                    }
+                    onExecuteTrade(tradeAmount);
+                    setShowConfirm(false);
+                  }}
+                  disabled={executing}
+                  className="bg-primary text-primary-foreground hover:bg-primary/90 tracking-wider text-xs uppercase"
+                >
                   {executing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sending single backend action...</> : 'Confirm & Execute Once'}
                 </Button>
                 <Button variant="outline" onClick={() => setShowConfirm(false)} className="border-border tracking-wider text-xs uppercase">Cancel</Button>
@@ -502,6 +543,33 @@ export default function DashboardSection({
           </CardContent>
         </Card>
       )}
+
+      <Card className="bg-card border-border">
+        <CardHeader>
+          <CardTitle className="font-serif tracking-wider text-base">Recent Trades</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {dashboardTrades.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No recent trades yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {dashboardTrades.map((trade, idx) => (
+                <div key={trade._id ?? idx} className="flex items-center justify-between border-b border-border/50 py-2 last:border-0">
+                  <div className="text-sm">
+                    <span className="font-medium mr-2">{(trade.pair ?? '').replace('_', '/').toUpperCase()}</span>
+                    <span className="text-muted-foreground">{trade.amount ?? '--'}</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs">
+                    <Badge variant="outline" className="border-border uppercase">{trade.side ?? '--'}</Badge>
+                    <span className="text-muted-foreground">{trade.createdAt ? new Date(trade.createdAt).toLocaleDateString() : '--'}</span>
+                    <span className={trade.result_status === 'success' ? 'text-emerald-400' : 'text-destructive'}>{trade.result_status ?? '--'}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card className="bg-card border-border">
         <CardHeader>

@@ -35,6 +35,7 @@ interface TradeHistoryProps {
   signals: SignalRecord[];
   loading: boolean;
   showSample: boolean;
+  error?: string;
 }
 
 const SAMPLE_TRADES: TradeRecord[] = [
@@ -49,19 +50,45 @@ const SAMPLE_SIGNALS: SignalRecord[] = [
   { _id: '3', pair: 'xrp_mxn', signal_type: 'BUY', confidence: 82, status: 'rejected', createdAt: '2026-03-23T09:05:00Z' },
 ];
 
-export default function TradeHistorySection({ trades, signals, loading, showSample }: TradeHistoryProps) {
+export default function TradeHistorySection({ trades, signals, loading, showSample, error }: TradeHistoryProps) {
   const [filterPair, setFilterPair] = useState('all');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
   const displayTrades = showSample ? SAMPLE_TRADES : trades;
   const displaySignals = showSample ? SAMPLE_SIGNALS : signals;
 
   const filtered = Array.isArray(displayTrades)
-    ? displayTrades.filter((t) => filterPair === 'all' || t?.pair === filterPair)
+    ? displayTrades.filter((t) => {
+      const pairMatch = filterPair === 'all' || t?.pair === filterPair;
+      const date = t.createdAt ? new Date(t.createdAt) : null;
+      const fromMatch = fromDate ? (date ? date >= new Date(`${fromDate}T00:00:00`) : false) : true;
+      const toMatch = toDate ? (date ? date <= new Date(`${toDate}T23:59:59`) : false) : true;
+      return pairMatch && fromMatch && toMatch;
+    })
     : [];
 
-  const getSignalForTrade = (trade: TradeRecord) => {
-    if (!trade?.signal_id || !Array.isArray(displaySignals)) return null;
-    return displaySignals.find((s) => s?._id === trade.signal_id) ?? null;
+  const exportCsv = () => {
+    if (filtered.length === 0) return;
+    const header = ['Date', 'Pair', 'Side', 'Amount', 'Price', 'Total', 'Order ID', 'Status'];
+    const rows = filtered.map((trade) => [
+      trade.createdAt ? new Date(trade.createdAt).toISOString() : '',
+      trade.pair ?? '',
+      trade.side ?? '',
+      trade.amount ?? '',
+      trade.price ?? '',
+      trade.total_value ?? '',
+      trade.bitso_order_id ?? '',
+      trade.result_status ?? '',
+    ]);
+    const csv = [header, ...rows].map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `trade-history-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   if (loading) {
@@ -77,7 +104,8 @@ export default function TradeHistorySection({ trades, signals, loading, showSamp
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="font-serif text-xl tracking-wider">Trade History</h2>
-        <div className="w-40">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+          <div className="w-40">
           <Label className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1 block">Filter by Pair</Label>
           <Select value={filterPair} onValueChange={setFilterPair}>
             <SelectTrigger className="bg-card border-border text-sm"><SelectValue /></SelectTrigger>
@@ -90,7 +118,30 @@ export default function TradeHistorySection({ trades, signals, loading, showSamp
             </SelectContent>
           </Select>
         </div>
+          <div>
+            <Label className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1 block">From</Label>
+            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="h-10 rounded border border-border bg-card px-2 text-sm w-full" />
+          </div>
+          <div>
+            <Label className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1 block">To</Label>
+            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="h-10 rounded border border-border bg-card px-2 text-sm w-full" />
+          </div>
+          <button
+            type="button"
+            onClick={exportCsv}
+            disabled={filtered.length === 0}
+            className="h-10 rounded border border-border px-3 text-xs uppercase tracking-wider disabled:opacity-50"
+          >
+            Export CSV
+          </button>
+        </div>
       </div>
+
+      {error ? (
+        <Card className="border-destructive/40 bg-destructive/10">
+          <CardContent className="p-3 text-sm text-destructive">{error}</CardContent>
+        </Card>
+      ) : null}
 
       <Card className="bg-card border-border">
         <CardContent className="p-0">

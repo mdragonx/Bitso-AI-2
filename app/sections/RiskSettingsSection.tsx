@@ -65,6 +65,7 @@ export default function RiskSettingsSection({ showSample, onSettingsChanged }: R
   const [settingsId, setSettingsId] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState('');
   const [statusType, setStatusType] = useState<'success' | 'error' | ''>('');
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
   useEffect(() => {
     if (!showSample) {
@@ -95,6 +96,22 @@ export default function RiskSettingsSection({ showSample, onSettingsChanged }: R
   };
 
   const handleSave = async () => {
+    const maxTrade = Number(maxTradeAmount);
+    const daily = Number(dailyLimit);
+    const stopLoss = Number(stopLossPct);
+    const errors: string[] = [];
+    if (!Number.isFinite(maxTrade) || maxTrade <= 0) errors.push('Max trade amount must be greater than 0.');
+    if (!Number.isFinite(daily) || daily <= 0) errors.push('Daily transaction limit must be greater than 0.');
+    if (!Number.isFinite(stopLoss) || stopLoss < 0 || stopLoss > 100) errors.push('Stop-loss percentage must be between 0 and 100.');
+    if (allowedPairs.length === 0) errors.push('Select at least one allowed trading pair.');
+    if (errors.length > 0) {
+      setValidationErrors(errors);
+      setStatusType('error');
+      setStatusMsg('Fix validation errors before saving.');
+      return;
+    }
+
+    setValidationErrors([]);
     setSaving(true);
     setStatusMsg('');
     try {
@@ -153,7 +170,6 @@ export default function RiskSettingsSection({ showSample, onSettingsChanged }: R
     );
   }
 
-  const selectedBehavior = BEHAVIORAL_POSITIONS.find(b => b.id === behavioralPosition);
   const selectedFeeTier = FEE_TIERS.find(f => f.id === feeTier);
 
   return (
@@ -283,6 +299,13 @@ export default function RiskSettingsSection({ showSample, onSettingsChanged }: R
         <div className={`flex items-center gap-2 p-3 text-sm ${statusType === 'success' ? 'text-emerald-400' : 'text-destructive'}`}>
           {statusType === 'success' ? <CheckCircle className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
           {statusMsg}
+        </div>
+      )}
+      {validationErrors.length > 0 && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          <ul className="list-disc ml-5 space-y-1">
+            {validationErrors.map((item) => <li key={item}>{item}</li>)}
+          </ul>
         </div>
       )}
 
