@@ -16,7 +16,10 @@
     "check:bitso-credentials-integrity": "node scripts/check-bitso-credentials-integrity.mjs",
     "db:bootstrap": "rm -rf .tmp/db-bootstrap && tsc --pretty false --noEmit false --module nodenext --moduleResolution nodenext --target es2020 --outDir .tmp/db-bootstrap scripts/db/bootstrap.ts && node .tmp/db-bootstrap/scripts/db/bootstrap.js",
     "migrate:trading-models": "node scripts/migrate-trading-models.mjs",
-    "test:contracts": "rm -rf .tmp/contract-tests && tsc --pretty false --noEmit false --module nodenext --moduleResolution nodenext --target es2020 --esModuleInterop --outDir .tmp/contract-tests tests/contracts.test.ts lib/contracts/apiContracts.ts && node --test .tmp/contract-tests/tests/contracts.test.js"
+    "test:contracts": "rm -rf .tmp/contract-tests && tsc --pretty false --noEmit false --module nodenext --moduleResolution nodenext --target es2020 --esModuleInterop --outDir .tmp/contract-tests tests/contracts.test.ts lib/contracts/apiContracts.ts && node --test .tmp/contract-tests/tests/contracts.test.js",
+    "test:validation": "rm -rf .tmp/validation-tests && tsc --pretty false --noEmit false --module nodenext --moduleResolution nodenext --target es2020 --esModuleInterop --outDir .tmp/validation-tests tests/trading-validation.test.ts lib/validation/trading.ts lib/contracts/apiContracts.ts && node --test .tmp/validation-tests/tests/trading-validation.test.js",
+    "test:all": "npm run test:contracts && npm run test:validation",
+    "test:coverage": "rm -rf .tmp/validation-tests && tsc --pretty false --noEmit false --module nodenext --moduleResolution nodenext --target es2020 --esModuleInterop --outDir .tmp/validation-tests tests/contracts.test.ts tests/trading-validation.test.ts lib/validation/trading.ts lib/contracts/apiContracts.ts && node --experimental-test-coverage --test-coverage-lines=85 --test-coverage-functions=85 --test-coverage-branches=75 --test .tmp/validation-tests/tests/contracts.test.js .tmp/validation-tests/tests/trading-validation.test.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
