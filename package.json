@@ -8,7 +8,9 @@
     "start": "next start -p 3333",
     "lint": "next lint",
     "migrate:passwords:dry-run": "node scripts/migrate-user-passwords.mjs --dry-run",
-    "migrate:passwords": "node scripts/migrate-user-passwords.mjs"
+    "migrate:passwords": "node scripts/migrate-user-passwords.mjs",
+    "migrate:collections:dry-run": "node scripts/migrate-canonical-collections.mjs --dry-run",
+    "migrate:collections": "node scripts/migrate-canonical-collections.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
