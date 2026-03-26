@@ -2,6 +2,26 @@ import { NextRequest, NextResponse } from 'next/server'
 
 const SCHEDULER_BASE_URL = 'https://scheduler.studio.lyzr.ai'
 const LYZR_API_KEY = process.env.LYZR_API_KEY || ''
+const ENABLE_SCHEDULER = process.env.ENABLE_SCHEDULER?.toLowerCase() !== 'false'
+
+
+function schedulerDisabledResponse() {
+  return NextResponse.json(
+    {
+      success: false,
+      error: 'Scheduler feature is disabled. Set ENABLE_SCHEDULER=true to enable /api/scheduler.',
+      actionable: 'Update environment config with ENABLE_SCHEDULER=true and restart the app.',
+    },
+    { status: 501 }
+  )
+}
+
+function featureCheck() {
+  if (!ENABLE_SCHEDULER) {
+    return schedulerDisabledResponse()
+  }
+  return null
+}
 
 function getHeaders() {
   return {
@@ -25,6 +45,9 @@ function apiKeyCheck() {
 // GET — list | get | by-agent | logs | recent
 // ---------------------------------------------------------------------------
 export async function GET(request: NextRequest) {
+  const feature = featureCheck()
+  if (feature) return feature
+
   const check = apiKeyCheck()
   if (check) return check
 
@@ -120,6 +143,9 @@ export async function GET(request: NextRequest) {
 // POST — create | pause | resume | trigger
 // ---------------------------------------------------------------------------
 export async function POST(request: NextRequest) {
+  const feature = featureCheck()
+  if (feature) return feature
+
   const check = apiKeyCheck()
   if (check) return check
 
@@ -221,6 +247,9 @@ export async function POST(request: NextRequest) {
 // DELETE — delete schedule  (upstream returns 204 No Content)
 // ---------------------------------------------------------------------------
 export async function DELETE(request: NextRequest) {
+  const feature = featureCheck()
+  if (feature) return feature
+
   const check = apiKeyCheck()
   if (check) return check
 

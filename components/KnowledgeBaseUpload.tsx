@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useRAGKnowledgeBase, SUPPORTED_FILE_TYPES, type RAGDocument } from '@/lib/ragKnowledgeBase'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { clientFeatureFlags, getFeatureDisabledMessage } from '@/lib/featureFlags'
 
 interface KnowledgeBaseUploadProps {
   ragId: string
@@ -28,12 +29,15 @@ export function KnowledgeBaseUpload({
   } = useRAGKnowledgeBase()
 
   const [isDragging, setIsDragging] = React.useState(false)
+  const ragEnabled = clientFeatureFlags.rag
   const [uploadProgress, setUploadProgress] = React.useState<string | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
 
   React.useEffect(() => {
-    fetchDocuments(ragId)
-  }, [ragId])
+    if (ragEnabled) {
+      fetchDocuments(ragId)
+    }
+  }, [fetchDocuments, ragEnabled, ragId])
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
@@ -66,6 +70,11 @@ export function KnowledgeBaseUpload({
   }
 
   const handleFileUpload = async (file: File) => {
+    if (!ragEnabled) {
+      alert(getFeatureDisabledMessage('rag'))
+      return
+    }
+
     if (!SUPPORTED_FILE_TYPES.includes(file.type as typeof SUPPORTED_FILE_TYPES[number])) {
       alert('Unsupported file type. Please upload PDF, DOCX, or TXT files.')
       return
@@ -86,6 +95,11 @@ export function KnowledgeBaseUpload({
   }
 
   const handleDelete = async (fileName: string) => {
+    if (!ragEnabled) {
+      alert(getFeatureDisabledMessage('rag'))
+      return
+    }
+
     if (!confirm(`Delete "${fileName}"?`)) return
 
     const result = await removeDocuments(ragId, [fileName])
@@ -127,12 +141,16 @@ export function KnowledgeBaseUpload({
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => {
+            if (ragEnabled) fileInputRef.current?.click()
+          }}
           className={cn(
-            'border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors',
+            'border-2 border-dashed rounded-lg p-8 text-center transition-colors',
             isDragging
               ? 'border-primary bg-primary/5'
-              : 'border-muted-foreground/25 hover:border-primary/50'
+              : ragEnabled
+                ? 'border-muted-foreground/25 hover:border-primary/50 cursor-pointer'
+                : 'border-muted-foreground/25 cursor-not-allowed opacity-60'
           )}
         >
           <input
@@ -140,6 +158,7 @@ export function KnowledgeBaseUpload({
             type="file"
             accept=".pdf,.docx,.txt"
             onChange={handleFileSelect}
+            disabled={!ragEnabled}
             className="hidden"
           />
           <svg
@@ -162,6 +181,12 @@ export function KnowledgeBaseUpload({
             PDF, DOCX, TXT supported
           </p>
         </div>
+
+        {!ragEnabled && (
+          <div className="rounded-md bg-amber-500/10 p-3 text-sm text-amber-300">
+            {getFeatureDisabledMessage('rag')}
+          </div>
+        )}
 
         {/* Error Message */}
         {error && (

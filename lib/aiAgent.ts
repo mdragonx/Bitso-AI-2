@@ -19,6 +19,7 @@
 
 import { useState } from 'react'
 import fetchWrapper from '@/lib/fetchWrapper'
+import { clientFeatureFlags, getFeatureDisabledMessage } from '@/lib/featureFlags'
 
 // Types
 export interface NormalizedAgentResponse {
@@ -207,6 +208,20 @@ export async function uploadFiles(files: File | File[]): Promise<UploadResponse>
       message: 'No files provided',
       timestamp: new Date().toISOString(),
       error: 'No files provided',
+    }
+  }
+
+  if (!clientFeatureFlags.upload) {
+    return {
+      success: false,
+      asset_ids: [],
+      files: [],
+      total_files: fileArray.length,
+      successful_uploads: 0,
+      failed_uploads: fileArray.length,
+      message: 'Upload feature disabled',
+      timestamp: new Date().toISOString(),
+      error: getFeatureDisabledMessage('upload'),
     }
   }
 

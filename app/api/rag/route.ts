@@ -30,6 +30,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 const LYZR_RAG_BASE_URL = "https://rag-prod.studio.lyzr.ai/v3";
 const LYZR_API_KEY = process.env.LYZR_API_KEY || "";
+const ENABLE_RAG = process.env.ENABLE_RAG?.toLowerCase() !== "false";
 
 const FILE_TYPE_MAP: Record<string, "pdf" | "docx" | "txt"> = {
   "application/pdf": "pdf",
@@ -38,18 +39,47 @@ const FILE_TYPE_MAP: Record<string, "pdf" | "docx" | "txt"> = {
   "text/plain": "txt",
 };
 
+function ragDisabledResponse() {
+  return NextResponse.json(
+    {
+      success: false,
+      error:
+        "RAG feature is disabled. Set ENABLE_RAG=true to enable /api/rag routes.",
+      actionable:
+        "Update environment config with ENABLE_RAG=true and restart the app.",
+    },
+    { status: 501 }
+  );
+}
+
+function ensureRagEnabled() {
+  if (!ENABLE_RAG) {
+    return ragDisabledResponse();
+  }
+  return null;
+}
+
+function ensureApiKeyConfigured() {
+  if (!LYZR_API_KEY) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "LYZR_API_KEY not configured on server",
+      },
+      { status: 500 }
+    );
+  }
+  return null;
+}
+
 // POST - List documents (JSON body) or Upload and train (formData)
 export async function POST(request: NextRequest) {
   try {
-    if (!LYZR_API_KEY) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "LYZR_API_KEY not configured on server",
-        },
-        { status: 500 }
-      );
-    }
+    const disabled = ensureRagEnabled();
+    if (disabled) return disabled;
+
+    const apiKeyError = ensureApiKeyConfigured();
+    if (apiKeyError) return apiKeyError;
 
     const contentType = request.headers.get("content-type") || "";
 
@@ -209,15 +239,11 @@ export async function POST(request: NextRequest) {
 // PATCH - Crawl a website and add content to knowledge base
 export async function PATCH(request: NextRequest) {
   try {
-    if (!LYZR_API_KEY) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "LYZR_API_KEY not configured on server",
-        },
-        { status: 500 }
-      );
-    }
+    const disabled = ensureRagEnabled();
+    if (disabled) return disabled;
+
+    const apiKeyError = ensureApiKeyConfigured();
+    if (apiKeyError) return apiKeyError;
 
     const body = await request.json();
     const { ragId, url } = body;
@@ -275,15 +301,11 @@ export async function PATCH(request: NextRequest) {
 // DELETE - Remove documents from knowledge base
 export async function DELETE(request: NextRequest) {
   try {
-    if (!LYZR_API_KEY) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "LYZR_API_KEY not configured on server",
-        },
-        { status: 500 }
-      );
-    }
+    const disabled = ensureRagEnabled();
+    if (disabled) return disabled;
+
+    const apiKeyError = ensureApiKeyConfigured();
+    if (apiKeyError) return apiKeyError;
 
     const body = await request.json();
     const { ragId, documentNames } = body;
