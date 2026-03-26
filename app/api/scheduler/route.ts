@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getSessionFromRequest } from '@/lib/auth'
 
 const SCHEDULER_BASE_URL = 'https://scheduler.studio.lyzr.ai'
 const LYZR_API_KEY = process.env.LYZR_API_KEY || ''
@@ -41,6 +42,42 @@ function apiKeyCheck() {
   return null
 }
 
+function getAuthenticatedUserId(request: NextRequest) {
+  const session = getSessionFromRequest(request)
+  const authenticatedUserId = session?.userId
+
+  if (!authenticatedUserId) {
+    // Audit log: identity resolution failed for scheduler route.
+    return {
+      userId: null,
+      error: NextResponse.json(
+        { success: false, error: 'Authenticated user identity is required' },
+        { status: 400 }
+      ),
+    }
+  }
+
+  return { userId: authenticatedUserId, error: null }
+}
+
+function validateClientIdentityInput(
+  userId: string,
+  identityValues: Array<{ key: string; value: unknown }>
+) {
+  for (const identity of identityValues) {
+    if (identity.value == null) continue
+    const normalized = String(identity.value).trim()
+    if (normalized && normalized !== userId) {
+      // Audit log: client supplied identity did not match authenticated user context.
+      return NextResponse.json(
+        { success: false, error: `${identity.key} must match authenticated user identity` },
+        { status: 400 }
+      )
+    }
+  }
+  return null
+}
+
 // ---------------------------------------------------------------------------
 // GET — list | get | by-agent | logs | recent
 // ---------------------------------------------------------------------------
@@ -51,11 +88,19 @@ export async function GET(request: NextRequest) {
   const check = apiKeyCheck()
   if (check) return check
 
+  const { userId, error: userError } = getAuthenticatedUserId(request)
+  if (userError || !userId) return userError
+
   try {
     const { searchParams } = new URL(request.url)
     const action = searchParams.get('action') || 'list'
     const scheduleId = searchParams.get('scheduleId')
     const agentId = searchParams.get('agentId')
+    const identityQueryError = validateClientIdentityInput(userId, [
+      { key: 'user_id', value: searchParams.get('user_id') },
+      { key: 'userId', value: searchParams.get('userId') },
+    ])
+    if (identityQueryError) return identityQueryError
 
     let url: string
 
@@ -109,7 +154,7 @@ export async function GET(request: NextRequest) {
       case 'list':
       default: {
         const listQuery = new URLSearchParams()
-        listQuery.set('user_id', LYZR_API_KEY)
+        listQuery.set('user_id', userId)
         if (agentId) listQuery.set('agent_id', agentId)
         if (searchParams.get('is_active')) listQuery.set('is_active', searchParams.get('is_active')!)
         if (searchParams.get('skip')) listQuery.set('skip', searchParams.get('skip')!)
@@ -149,9 +194,17 @@ export async function POST(request: NextRequest) {
   const check = apiKeyCheck()
   if (check) return check
 
+  const { userId, error: userError } = getAuthenticatedUserId(request)
+  if (userError || !userId) return userError
+
   try {
     const body = await request.json()
     const { action, scheduleId, ...params } = body
+    const identityBodyError = validateClientIdentityInput(userId, [
+      { key: 'user_id', value: body?.user_id },
+      { key: 'userId', value: body?.userId },
+    ])
+    if (identityBodyError) return identityBodyError
 
     let url: string
     let fetchBody: string | undefined
@@ -199,7 +252,7 @@ export async function POST(request: NextRequest) {
           cron_expression: params.cron_expression,
           message: params.message,
           timezone: params.timezone || 'UTC',
-          user_id: LYZR_API_KEY,
+          user_id: userId,
           max_retries: params.max_retries ?? 3,
           retry_delay: params.retry_delay ?? 300,
         })
@@ -253,9 +306,17 @@ export async function DELETE(request: NextRequest) {
   const check = apiKeyCheck()
   if (check) return check
 
+  const { userId, error: userError } = getAuthenticatedUserId(request)
+  if (userError || !userId) return userError
+
   try {
     const body = await request.json()
     const { scheduleId } = body
+    const identityBodyError = validateClientIdentityInput(userId, [
+      { key: 'user_id', value: body?.user_id },
+      { key: 'userId', value: body?.userId },
+    ])
+    if (identityBodyError) return identityBodyError
 
     if (!scheduleId) {
       return NextResponse.json({ success: false, error: 'scheduleId is required' }, { status: 400 })
