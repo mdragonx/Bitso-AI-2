@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUserId, withAuth } from '@/lib/auth';
 import getBitsoCredentialModel from '@/models/BitsoCredential';
+import { decryptSecret, migratePlaintextBitsoSecrets } from '@/lib/cryptoSecrets';
 import crypto from 'crypto';
 
 function createBitsoAuthHeader(apiKey: string, apiSecret: string, method: string, path: string, body: string = '') {
@@ -23,12 +24,17 @@ const BITSO_FEE_TIERS = [
 async function handler(req: NextRequest) {
   try {
     // Try to fetch real fees from Bitso if credentials exist
+    await migratePlaintextBitsoSecrets();
     const Model = await getBitsoCredentialModel();
     const creds = await Model.find({ owner_user_id: getCurrentUserId(req) });
 
     if (Array.isArray(creds) && creds.length > 0) {
       const apiKey = creds[0].api_key;
-      const apiSecret = creds[0].api_secret;
+      const apiSecret = decryptSecret({
+        ciphertext: creds[0].encrypted_api_secret_ciphertext,
+        iv: creds[0].encrypted_api_secret_iv,
+        tag: creds[0].encrypted_api_secret_tag,
+      });
       const path = '/api/v3/fees/';
       const authHeader = createBitsoAuthHeader(apiKey, apiSecret, 'GET', path);
 

@@ -3,6 +3,7 @@ import { getCurrentUserId, withAuth } from '@/lib/auth';
 import getBitsoCredentialModel from '@/models/BitsoCredential';
 import getRiskSettingModel from '@/models/RiskSetting';
 import getTradeModel from '@/models/Trade';
+import { decryptSecret, migratePlaintextBitsoSecrets } from '@/lib/cryptoSecrets';
 import crypto from 'crypto';
 
 function createBitsoAuthHeader(apiKey: string, apiSecret: string, method: string, path: string, body: string = '') {
@@ -71,6 +72,7 @@ async function estimateOrderNotionalMXN(payload: {
 async function handler(req: NextRequest) {
   try {
     const ownerUserId = getCurrentUserId(req);
+    await migratePlaintextBitsoSecrets();
     const Model = await getBitsoCredentialModel();
     const creds = await Model.find({ owner_user_id: ownerUserId });
 
@@ -80,7 +82,11 @@ async function handler(req: NextRequest) {
 
     const credential = creds[0];
     const apiKey = credential.api_key;
-    const apiSecret = credential.api_secret;
+    const apiSecret = decryptSecret({
+      ciphertext: credential.encrypted_api_secret_ciphertext,
+      iv: credential.encrypted_api_secret_iv,
+      tag: credential.encrypted_api_secret_tag,
+    });
 
     const body = await req.json();
     const { book, side, type = 'market', major, minor, price } = body;
