@@ -37,6 +37,25 @@ interface TradeResult {
   idempotency_key?: string;
 }
 
+interface MarketContextSourceItem {
+  type?: 'news' | 'sentiment';
+  source?: string;
+  title?: string;
+  summary?: string;
+  url?: string;
+  published_at?: string;
+}
+
+interface MarketContextRecord {
+  generated_at?: string;
+  summary?: string;
+  approved_sources?: {
+    news?: string[];
+    sentiment?: string[];
+  };
+  items?: MarketContextSourceItem[];
+}
+
 interface RecentSignal {
   _id?: string;
   pair?: string;
@@ -44,6 +63,7 @@ interface RecentSignal {
   confidence?: number;
   status?: string;
   createdAt?: string;
+  market_context?: string | MarketContextRecord;
 }
 
 interface BalanceItem {
@@ -173,6 +193,13 @@ export default function DashboardSection({
 
   const data = showSample ? SAMPLE_ANALYSIS : analysisResult;
   const signals = showSample ? SAMPLE_SIGNALS : recentSignals;
+  const latestSignal = !showSample && Array.isArray(signals) && signals.length > 0 ? signals[0] : null;
+  const recommendationContext: MarketContextRecord | null = latestSignal && latestSignal.market_context && typeof latestSignal.market_context === 'object'
+    ? latestSignal.market_context
+    : null;
+  const recommendationSources = Array.isArray(recommendationContext?.items)
+    ? recommendationContext.items.slice(0, 3)
+    : [];
   const displayBalances = showSample ? SAMPLE_BALANCES : balances;
   const displayTicker = showSample ? SAMPLE_TICKER : ticker;
   const signalUpper = (data?.signal ?? '').toUpperCase();
@@ -317,6 +344,19 @@ export default function DashboardSection({
                 <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Market Summary</p>
                 {renderMarkdown(data.market_summary ?? '')}
               </div>
+              {recommendationContext && recommendationSources.length > 0 && (
+                <div className="rounded-md border border-border/70 bg-muted/20 p-3">
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Source Audit Trail</p>
+                  <div className="space-y-2">
+                    {recommendationSources.map((item, idx) => (
+                      <div key={`${item.url ?? item.title ?? 'source'}-${idx}`} className="text-xs">
+                        <p className="text-foreground/90">{item.source ?? 'Approved source'} · {item.published_at ? new Date(item.published_at).toLocaleString() : 'timestamp unavailable'}</p>
+                        <p className="text-muted-foreground">{item.title ?? item.summary ?? 'No summary available.'}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div>
                 <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Risk Assessment</p>
                 {renderMarkdown(data.risk_assessment ?? '')}

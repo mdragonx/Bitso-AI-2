@@ -235,6 +235,24 @@ interface RiskViolation {
   details?: Record<string, any>;
 }
 
+interface MarketContextItem {
+  type: 'news' | 'sentiment';
+  source: string;
+  title: string;
+  summary: string;
+  url: string;
+  published_at: string;
+}
+
+interface MarketContextPayload {
+  approved_sources?: {
+    news?: string[];
+    sentiment?: string[];
+  };
+  items?: MarketContextItem[];
+  generated_at?: string;
+}
+
 export default function Page() {
   const [activeScreen, setActiveScreen] = useState('dashboard');
   const [selectedPair, setSelectedPair] = useState('btc_mxn');
@@ -349,23 +367,50 @@ export default function Page() {
     try {
       const pairLabel = selectedPair.replace('_', '/').toUpperCase();
 
-      // Fetch real OHLC data from Bitso if API keys are configured
+      // Fetch market context and OHLC in parallel before analysis
       let ohlcContext = '';
-      if (hasApiKeys) {
-        try {
-          const ohlcRes = await fetch(`/api/bitso/ohlc?book=${selectedPair}&timeframe=1hour`);
-          const ohlcJson = await ohlcRes.json();
-          if (ohlcJson.success && ohlcJson.data) {
-            const candles = Array.isArray(ohlcJson.data) ? ohlcJson.data.slice(-50) : [];
-            ohlcContext = `\n\nHere is the latest OHLC data (last 50 1-hour candles) from the Bitso exchange:\n${JSON.stringify(candles)}`;
-          }
-        } catch { /* continue without OHLC data */ }
+      let marketContextPayload: MarketContextPayload = {};
 
-        // Also include current balances for position sizing context
-        if (balances.length > 0) {
-          ohlcContext += `\n\nCurrent portfolio balances: ${JSON.stringify(balances.filter(b => parseFloat(b.total) > 0).map(b => ({ currency: b.currency, available: b.available })))}`;
-        }
+      const [marketContextResult, ohlcResult] = await Promise.all([
+        fetch('/api/market-context', { cache: 'no-store' })
+          .then((res) => res.json())
+          .catch(() => ({ success: false })),
+        hasApiKeys
+          ? fetch(`/api/bitso/ohlc?book=${selectedPair}&timeframe=1hour`)
+            .then((res) => res.json())
+            .catch(() => ({ success: false }))
+          : Promise.resolve({ success: false }),
+      ]);
+
+      if (marketContextResult?.success && marketContextResult?.data) {
+        marketContextPayload = marketContextResult.data as MarketContextPayload;
       }
+
+      if (ohlcResult?.success && ohlcResult?.data) {
+        const candles = Array.isArray(ohlcResult.data) ? ohlcResult.data.slice(-50) : [];
+        ohlcContext = `
+
+Here is the latest OHLC data (last 50 1-hour candles) from the Bitso exchange:
+${JSON.stringify(candles)}`;
+      }
+
+      if (hasApiKeys && balances.length > 0) {
+        ohlcContext += `
+
+Current portfolio balances: ${JSON.stringify(
+          balances.filter((b) => parseFloat(b.total) > 0).map((b) => ({ currency: b.currency, available: b.available }))
+        )}`;
+      }
+
+      const contextItems = Array.isArray(marketContextPayload.items) ? marketContextPayload.items : [];
+      const marketContextPrompt = contextItems.length > 0
+        ? `
+
+Approved market context sources (news + sentiment) for audit-safe reasoning:
+${JSON.stringify(contextItems)}`
+        : `
+
+Approved market context sources were unavailable for this run.`;
 
       const behaviorInstruction = behavioralPosition === 'conservative'
         ? 'INVESTMENT STRATEGY: Conservative. Only recommend BUY/SELL on high-confidence signals (>75%). Prefer HOLD for uncertain conditions. Suggest smaller position sizes and tighter stop-losses. Prioritize capital preservation.'
@@ -374,7 +419,7 @@ export default function Page() {
         : 'INVESTMENT STRATEGY: Moderate. Act on signals with >60% confidence. Standard position sizes with balanced stop-losses. Follow market trends with measured risk/reward.';
 
       const result = await callAIAgent(
-        `${behaviorInstruction}\n\nAnalyze the current market conditions for ${pairLabel}. Provide a buy/sell/hold recommendation with confidence score, technical analysis summary, market research summary, risk assessment, recommended entry price, exit price, stop-loss price, and position size suggestion.${ohlcContext}`,
+        `${behaviorInstruction}\n\nAnalyze the current market conditions for ${pairLabel}. Provide a buy/sell/hold recommendation with confidence score, technical analysis summary, market research summary, risk assessment, recommended entry price, exit price, stop-loss price, and position size suggestion. Explicitly incorporate the provided market-context sources in your market summary and reasoning sections.${ohlcContext}${marketContextPrompt}`,
         MARKET_ANALYSIS_AGENT
       );
 
@@ -391,7 +436,19 @@ export default function Page() {
             signal_type: (data.signal ?? 'HOLD').toUpperCase(),
             confidence: data.confidence ?? 0,
             indicators: { technical_summary: data.technical_summary, market_summary: data.market_summary },
-            market_context: data.market_summary ?? '',
+            market_context: {
+              generated_at: marketContextPayload.generated_at ?? new Date().toISOString(),
+              summary: data.market_summary ?? '',
+              approved_sources: marketContextPayload.approved_sources ?? {},
+              items: contextItems.map((item) => ({
+                type: item.type,
+                source: item.source,
+                title: item.title,
+                summary: item.summary,
+                url: item.url,
+                published_at: item.published_at,
+              })),
+            },
             risk_assessment: data.risk_assessment ?? '',
             reasoning: data.reasoning ?? '',
             recommended_entry_price: data.recommended_entry_price ?? '',
