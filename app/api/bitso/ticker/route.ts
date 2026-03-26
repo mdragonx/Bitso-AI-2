@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authMiddleware } from 'lyzr-architect';
+import { getCurrentUserId, withAuth } from '@/lib/auth';
 
 async function handler(req: NextRequest) {
   try {
@@ -24,5 +24,5 @@ async function handler(req: NextRequest) {
   }
 }
 
-const protectedHandler = authMiddleware(handler);
+const protectedHandler = withAuth(handler);
 export const GET = protectedHandler;

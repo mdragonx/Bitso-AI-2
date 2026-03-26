@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authMiddleware, getCurrentUserId } from 'lyzr-architect';
+import { getCurrentUserId, withAuth } from '@/lib/auth';
 import getBitsoCredentialModel from '@/models/BitsoCredential';
 
 async function handler(req: NextRequest) {
   try {
     const Model = await getBitsoCredentialModel();
+    const userId = getCurrentUserId(req);
 
     if (req.method === 'GET') {
-      const data = await Model.find({});
+      const data = await Model.find({ owner_user_id: userId });
       // Mask the secret for security - only return last 4 chars
       const masked = Array.isArray(data) ? data.map((d: any) => {
         const obj = d.toObject ? d.toObject() : { ...d };
@@ -26,18 +27,18 @@ async function handler(req: NextRequest) {
         return NextResponse.json({ success: false, error: 'api_key and api_secret are required' }, { status: 400 });
       }
       // Remove any existing credentials for this user first
-      await Model.deleteMany({});
+      await Model.deleteMany({ owner_user_id: userId });
       const doc = await Model.create({
         api_key: body.api_key,
         api_secret: body.api_secret,
         is_active: true,
-        owner_user_id: getCurrentUserId(),
+        owner_user_id: userId,
       });
       return NextResponse.json({ success: true, data: { _id: doc._id, api_key: doc.api_key, api_secret_masked: '****' + doc.api_secret.slice(-4), is_active: doc.is_active } });
     }
 
     if (req.method === 'DELETE') {
-      await Model.deleteMany({});
+      await Model.deleteMany({ owner_user_id: userId });
       return NextResponse.json({ success: true });
     }
 
@@ -47,7 +48,7 @@ async function handler(req: NextRequest) {
   }
 }
 
-const protectedHandler = authMiddleware(handler);
+const protectedHandler = withAuth(handler);
 export const GET = protectedHandler;
 export const POST = protectedHandler;
 export const DELETE = protectedHandler;

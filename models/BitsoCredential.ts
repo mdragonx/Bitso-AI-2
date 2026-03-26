@@ -1,15 +1,17 @@
-import { initDB, createModel } from 'lyzr-architect';
+import { model, models, Schema } from 'mongoose';
+import connectToDatabase from '@/lib/mongodb';
 
-let _model: any = null;
+const BitsoCredentialSchema = new Schema(
+  {
+    api_key: { type: String, required: true },
+    api_secret: { type: String, required: true },
+    is_active: { type: Boolean, default: true },
+    owner_user_id: { type: String, default: '' },
+  },
+  { timestamps: true }
+);
 
 export default async function getBitsoCredentialModel() {
-  if (!_model) {
-    await initDB();
-    _model = createModel('BitsoCredential', {
-      api_key: { type: String, required: true },
-      api_secret: { type: String, required: true },
-      is_active: { type: Boolean, default: true },
-    });
-  }
-  return _model;
+  await connectToDatabase();
+  return models.BitsoCredential || model('BitsoCredential', BitsoCredentialSchema);
 }
