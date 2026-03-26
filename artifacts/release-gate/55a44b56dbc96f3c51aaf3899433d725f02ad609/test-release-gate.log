@@ -1,0 +1,101 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> nextjs-project@0.1.0 test:release-gate
+> npm run test:integration
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> nextjs-project@0.1.0 test:integration
+> rm -rf .tmp/integration-tests && tsc --pretty false --noEmit false --module nodenext --moduleResolution nodenext --target es2020 --esModuleInterop --outDir .tmp/integration-tests tests/integration-e2e.test.ts app/api/auth/register/route.ts app/api/auth/login/route.ts app/api/auth/me/route.ts app/api/auth/logout/route.ts app/api/agent/route.ts app/api/execution/route.ts app/api/bitso/order/route.ts lib/services/executionService.ts lib/services/riskValidationService.ts lib/auth.ts lib/contracts/apiContracts.ts lib/validation/trading.ts lib/config/runtime.ts && node --test .tmp/integration-tests/tests/integration-e2e.test.js
+
+app/api/agent/route.ts(1,43): error TS2307: Cannot find module 'next/server' or its corresponding type declarations.
+app/api/agent/route.ts(2,26): error TS2307: Cannot find module 'fs/promises' or its corresponding type declarations.
+app/api/agent/route.ts(3,18): error TS2307: Cannot find module 'path' or its corresponding type declarations.
+app/api/agent/route.ts(5,37): error TS2307: Cannot find module '@/lib/ai/providerFactory' or its corresponding type declarations.
+app/api/agent/route.ts(6,37): error TS2307: Cannot find module '@/lib/ai/types' or its corresponding type declarations.
+app/api/agent/route.ts(7,46): error TS2307: Cannot find module '@/lib/contracts/apiContracts' or its corresponding type declarations.
+app/api/agent/route.ts(8,44): error TS2307: Cannot find module '@/lib/auth' or its corresponding type declarations.
+app/api/agent/route.ts(13,8): error TS2307: Cannot find module '@/lib/observability/lifecycle' or its corresponding type declarations.
+app/api/agent/route.ts(14,30): error TS2307: Cannot find module '@/lib/validation/trading' or its corresponding type declarations.
+app/api/agent/route.ts(92,32): error TS2580: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node`.
+app/api/agent/route.ts(340,111): error TS2339: Property 'errors' does not exist on type '{ valid: true; } | { valid: false; errors: string[]; }'.
+  Property 'errors' does not exist on type '{ valid: true; }'.
+app/api/agent/route.ts(348,41): error TS2339: Property 'errors' does not exist on type '{ valid: true; } | { valid: false; errors: string[]; }'.
+  Property 'errors' does not exist on type '{ valid: true; }'.
+app/api/agent/route.ts(357,45): error TS2339: Property 'errors' does not exist on type '{ valid: true; } | { valid: false; errors: string[]; }'.
+  Property 'errors' does not exist on type '{ valid: true; }'.
+app/api/auth/login/route.ts(1,43): error TS2307: Cannot find module 'next/server' or its corresponding type declarations.
+app/api/auth/login/route.ts(2,26): error TS2307: Cannot find module '@/models/User' or its corresponding type declarations.
+app/api/auth/login/route.ts(3,86): error TS2307: Cannot find module '@/lib/auth' or its corresponding type declarations.
+app/api/auth/login/route.ts(4,43): error TS2307: Cannot find module '@/lib/seed' or its corresponding type declarations.
+app/api/auth/login/route.ts(5,36): error TS2307: Cannot find module '@/lib/contracts/apiContracts' or its corresponding type declarations.
+app/api/auth/login/route.ts(6,53): error TS2307: Cannot find module '@/lib/observability/lifecycle' or its corresponding type declarations.
+app/api/auth/login/route.ts(7,30): error TS2307: Cannot find module '@/lib/validation/trading' or its corresponding type declarations.
+app/api/auth/logout/route.ts(1,30): error TS2307: Cannot find module 'next/server' or its corresponding type declarations.
+app/api/auth/logout/route.ts(2,36): error TS2307: Cannot find module '@/lib/auth' or its corresponding type declarations.
+app/api/auth/me/route.ts(1,43): error TS2307: Cannot find module 'next/server' or its corresponding type declarations.
+app/api/auth/me/route.ts(2,49): error TS2307: Cannot find module '@/lib/auth' or its corresponding type declarations.
+app/api/auth/me/route.ts(3,30): error TS2307: Cannot find module '@/lib/repositories/userRepository' or its corresponding type declarations.
+app/api/auth/register/route.ts(1,43): error TS2307: Cannot find module 'next/server' or its corresponding type declarations.
+app/api/auth/register/route.ts(2,70): error TS2307: Cannot find module '@/lib/auth' or its corresponding type declarations.
+app/api/auth/register/route.ts(3,43): error TS2307: Cannot find module '@/lib/seed' or its corresponding type declarations.
+app/api/auth/register/route.ts(4,45): error TS2307: Cannot find module '@/lib/repositories/userRepository' or its corresponding type declarations.
+app/api/auth/register/route.ts(5,30): error TS2307: Cannot find module '@/lib/validation/trading' or its corresponding type declarations.
+app/api/auth/register/route.ts(6,39): error TS2307: Cannot find module '@/lib/contracts/apiContracts' or its corresponding type declarations.
+app/api/bitso/order/route.ts(1,43): error TS2307: Cannot find module 'next/server' or its corresponding type declarations.
+app/api/bitso/order/route.ts(2,20): error TS2307: Cannot find module 'crypto' or its corresponding type declarations.
+app/api/bitso/order/route.ts(3,44): error TS2307: Cannot find module '@/lib/auth' or its corresponding type declarations.
+app/api/bitso/order/route.ts(4,74): error TS2307: Cannot find module '@/lib/cryptoSecrets' or its corresponding type declarations.
+app/api/bitso/order/route.ts(5,73): error TS2307: Cannot find module '@/lib/services/riskValidationService' or its corresponding type declarations.
+app/api/bitso/order/route.ts(6,37): error TS2307: Cannot find module '@/models/BitsoCredential' or its corresponding type declarations.
+app/api/bitso/order/route.ts(7,27): error TS2307: Cannot find module '@/models/Trade' or its corresponding type declarations.
+app/api/bitso/order/route.ts(8,48): error TS2307: Cannot find module '@/lib/config/runtime' or its corresponding type declarations.
+app/api/execution/route.ts(1,43): error TS2307: Cannot find module 'next/server' or its corresponding type declarations.
+app/api/execution/route.ts(2,44): error TS2307: Cannot find module '@/lib/auth' or its corresponding type declarations.
+app/api/execution/route.ts(3,45): error TS2307: Cannot find module '@/lib/contracts/apiContracts' or its corresponding type declarations.
+app/api/execution/route.ts(8,8): error TS2307: Cannot find module '@/lib/observability/lifecycle' or its corresponding type declarations.
+app/api/execution/route.ts(9,30): error TS2307: Cannot find module '@/lib/validation/trading' or its corresponding type declarations.
+app/api/execution/route.ts(10,47): error TS2307: Cannot find module '@/lib/services/executionService' or its corresponding type declarations.
+lib/auth.ts(1,28): error TS2307: Cannot find module 'crypto' or its corresponding type declarations.
+lib/auth.ts(2,43): error TS2307: Cannot find module 'next/server' or its corresponding type declarations.
+lib/auth.ts(3,35): error TS2307: Cannot find module '@/lib/observability/lifecycle' or its corresponding type declarations.
+lib/auth.ts(4,35): error TS2307: Cannot find module '@/lib/config/runtime' or its corresponding type declarations.
+lib/auth.ts(5,46): error TS2307: Cannot find module '@/lib/passwordHash.mjs' or its corresponding type declarations.
+lib/auth.ts(24,10): error TS2580: Cannot find name 'Buffer'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node`.
+lib/auth.ts(34,10): error TS2580: Cannot find name 'Buffer'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node`.
+lib/auth.ts(123,13): error TS2580: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node`.
+lib/auth.ts(133,13): error TS2580: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node`.
+lib/config/runtime.ts(8,8): error TS2580: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node`.
+lib/config/runtime.ts(9,12): error TS2580: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node`.
+lib/config/runtime.ts(10,9): error TS2580: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node`.
+lib/config/runtime.ts(17,21): error TS2580: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node`.
+lib/config/runtime.ts(22,36): error TS2580: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node`.
+lib/config/runtime.ts(31,21): error TS2580: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node`.
+lib/config/runtime.ts(40,18): error TS2580: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node`.
+lib/config/runtime.ts(40,45): error TS2580: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node`.
+lib/config/runtime.ts(63,8): error TS2580: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node`.
+lib/config/runtime.ts(63,36): error TS2580: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node`.
+lib/config/runtime.ts(73,8): error TS2580: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node`.
+lib/config/runtime.ts(77,21): error TS2580: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node`.
+lib/config/runtime.ts(78,33): error TS2580: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node`.
+lib/contracts/apiContracts.ts(1,19): error TS2307: Cannot find module 'zod' or its corresponding type declarations.
+lib/services/executionService.ts(1,20): error TS2307: Cannot find module 'crypto' or its corresponding type declarations.
+lib/services/executionService.ts(2,37): error TS2307: Cannot find module '@/models/BitsoCredential' or its corresponding type declarations.
+lib/services/executionService.ts(3,27): error TS2307: Cannot find module '@/models/Trade' or its corresponding type declarations.
+lib/services/executionService.ts(4,74): error TS2307: Cannot find module '@/lib/cryptoSecrets' or its corresponding type declarations.
+lib/services/executionService.ts(5,54): error TS2307: Cannot find module '@/lib/adapters/bitsoApiAdapter' or its corresponding type declarations.
+lib/services/executionService.ts(6,73): error TS2307: Cannot find module '@/lib/services/riskValidationService' or its corresponding type declarations.
+lib/services/executionService.ts(7,31): error TS2307: Cannot find module '@/lib/config/runtime' or its corresponding type declarations.
+lib/services/executionService.ts(375,5): error TS2322: Type '{ price?: string; minor?: string; major?: string; book: string; side: string; type: "market" | "limit"; }' is not assignable to type '{ book: string; side: "buy" | "sell"; type: "market" | "limit"; major?: string; minor?: string; price?: string; }'.
+  Types of property 'side' are incompatible.
+    Type 'string' is not assignable to type '"buy" | "sell"'.
+lib/services/riskValidationService.ts(1,33): error TS2307: Cannot find module '@/models/RiskSetting' or its corresponding type declarations.
+lib/services/riskValidationService.ts(2,27): error TS2307: Cannot find module '@/models/Trade' or its corresponding type declarations.
+lib/validation/trading.ts(1,19): error TS2307: Cannot find module 'zod' or its corresponding type declarations.
+tests/integration-e2e.test.ts(1,18): error TS2307: Cannot find module 'node:test' or its corresponding type declarations.
+tests/integration-e2e.test.ts(2,20): error TS2307: Cannot find module 'node:assert/strict' or its corresponding type declarations.
+tests/integration-e2e.test.ts(3,29): error TS2307: Cannot find module 'next/server' or its corresponding type declarations.
+tests/integration-e2e.test.ts(127,3): error TS2580: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node`.
+tests/integration-e2e.test.ts(197,3): error TS2580: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node`.
+tests/integration-e2e.test.ts(295,3): error TS2580: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node`.
+tests/integration-e2e.test.ts(412,3): error TS2580: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node`.

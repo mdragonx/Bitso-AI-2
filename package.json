@@ -73,8 +73,7 @@
     "tailwind-merge": "^2.5.2",
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^0.9.9",
-    "zod": "^3.25.76",
-    "cron-parser": "^5.2.0"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@netlify/plugin-nextjs": "^5.15.8",

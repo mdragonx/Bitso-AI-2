@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSessionValidationFromRequest } from '@/lib/auth';
-import { findUserById } from '@/lib/repositories/userRepository';
+import { getSessionValidationFromRequest } from '../../../../lib/auth';
+import { findUserById } from '../../../../lib/repositories/userRepository';
 
 export const dynamic = 'force-dynamic';
 

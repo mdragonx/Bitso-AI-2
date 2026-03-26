@@ -1,5 +1,5 @@
-import getRiskSettingModel from '@/models/RiskSetting';
-import getTradeModel from '@/models/Trade';
+import getRiskSettingModel from '../../models/RiskSetting';
+import getTradeModel from '../../models/Trade';
 
 export type RiskValidationInput = {
   ownerUserId: string;

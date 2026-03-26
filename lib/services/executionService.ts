@@ -1,10 +1,10 @@
 import crypto from 'crypto';
-import getBitsoCredentialModel from '@/models/BitsoCredential';
-import getTradeModel from '@/models/Trade';
-import { decryptBitsoCredentialPair, migratePlaintextBitsoSecrets } from '@/lib/cryptoSecrets';
-import { fetchBitsoBalances, submitBitsoOrder } from '@/lib/adapters/bitsoApiAdapter';
-import { persistRejectedTradeAttempt, validateExecutionRiskRules } from '@/lib/services/riskValidationService';
-import { runtimeConfig } from '@/lib/config/runtime';
+import getBitsoCredentialModel from '../../models/BitsoCredential';
+import getTradeModel from '../../models/Trade';
+import { decryptBitsoCredentialPair, migratePlaintextBitsoSecrets } from '../cryptoSecrets';
+import { fetchBitsoBalances, submitBitsoOrder } from '../adapters/bitsoApiAdapter';
+import { persistRejectedTradeAttempt, validateExecutionRiskRules } from './riskValidationService';
+import { runtimeConfig } from '../config/runtime';
 
 const executionServiceDependencies = {
   migratePlaintextBitsoSecrets,
@@ -206,7 +206,7 @@ export async function executeApprovedRecommendation(ownerUserId: string, input: 
     throw new Error('Cannot execute HOLD recommendation.');
   }
 
-  const side = recommendation.signal === 'BUY' ? 'buy' : 'sell';
+  const side: 'buy' | 'sell' = recommendation.signal === 'BUY' ? 'buy' : 'sell';
   const orderType = input.execution.type ?? 'market';
   const normalizedBook = normalizeBook(recommendation.pair);
   const idempotencyKey = input.idempotency_key || `exec-${Date.now()}-${crypto.randomUUID()}`;
@@ -327,7 +327,7 @@ export async function executeApprovedRecommendation(ownerUserId: string, input: 
     };
   }
 
-  const orderPayload = {
+  const orderPayload: { book: string; side: 'buy' | 'sell'; type: 'market' | 'limit'; major?: string; minor?: string; price?: string } = {
     book: normalizedBook,
     side,
     type: orderType,

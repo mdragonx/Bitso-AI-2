@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import getUserModel from '@/models/User';
-import { applySessionCookie, createSessionToken, hashPassword, verifyPassword } from '@/lib/auth';
-import { migrateAndSeedCollections } from '@/lib/seed';
-import { loginRequestSchema } from '@/lib/contracts/apiContracts';
-import { recordAuthAnomaly, withLifecycleLog } from '@/lib/observability/lifecycle';
-import { parseOrThrow } from '@/lib/validation/trading';
+import getUserModel from '../../../../models/User';
+import { applySessionCookie, createSessionToken, hashPassword, verifyPassword } from '../../../../lib/auth';
+import { migrateAndSeedCollections } from '../../../../lib/seed';
+import { loginRequestSchema } from '../../../../lib/contracts/apiContracts';
+import { recordAuthAnomaly, withLifecycleLog } from '../../../../lib/observability/lifecycle';
+import { parseOrThrow } from '../../../../lib/validation/trading';
 
 const loginRouteDependencies = {
   getUserModel,

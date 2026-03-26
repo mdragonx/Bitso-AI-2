@@ -1,6 +1,4 @@
 import { randomUUID } from 'crypto'
-import { CronExpressionParser } from 'cron-parser'
-
 import getScheduleExecutionModel from '@/models/ScheduleExecution'
 import getScheduleModel from '@/models/Schedule'
 import { getAIProviderClient } from '@/lib/ai/providerFactory'
@@ -11,6 +9,7 @@ import {
   recordExecutionMetrics,
   recordWorkerHeartbeat,
 } from '@/lib/scheduler/observability'
+import { getNextRunTime } from '@/lib/scheduler/cron'
 
 const MIN_INTERVAL_MS = 30_000
 const MAX_INTERVAL_MS = 60_000
@@ -53,13 +52,7 @@ function getNow() {
 }
 
 export function computeNextRunTime(cronExpression: string, timezone = 'UTC', fromDate = new Date()) {
-  const interval = CronExpressionParser.parse(cronExpression, {
-    currentDate: fromDate,
-    tz: timezone,
-    strict: true,
-  })
-
-  return interval.next().toDate()
+  return getNextRunTime(cronExpression, timezone, fromDate)
 }
 
 async function callAIAgentServerSide(message: string, agentId: string, userId?: string) {
