@@ -4,7 +4,7 @@ import { getSchedulerProvider, resolveSchedulerProviderName } from '@/lib/schedu
 import { SchedulerProviderResult } from '@/lib/scheduler/providers/types'
 import { logSchedulerEvent, persistSchedulerAuditEvent, SchedulerAction, SchedulerStatus } from '@/lib/scheduler/observability'
 import { z } from 'zod'
-import { CronExpressionParser } from 'cron-parser'
+import { validateCronExpression } from '@/lib/scheduler/cron'
 
 const ENABLE_SCHEDULER = process.env.ENABLE_SCHEDULER?.toLowerCase() !== 'false'
 const DEFAULT_LIMIT = 50
@@ -28,7 +28,9 @@ const cronExpressionSchema = z
   .max(120)
   .superRefine((value, ctx) => {
     try {
-      CronExpressionParser.parse(value, { strict: true })
+      if (!validateCronExpression(value)) {
+        throw new Error('Invalid cron expression')
+      }
     } catch {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid cron expression' })
     }
