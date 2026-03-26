@@ -76,13 +76,9 @@ export interface UploadResponse {
   error?: string
 }
 
-const POLL_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
-
 /**
  * Call the AI Agent via server-side API route.
- * Supports both:
- *  - async task flow: submit to internal API, then poll until completion
- *  - sync flow: immediate normalized response from the internal API
+ * Contract: synchronous request/response only.
  */
 export async function callAIAgent(
   message: string,
@@ -90,8 +86,7 @@ export async function callAIAgent(
   options?: { user_id?: string; session_id?: string; assets?: string[]; metadata?: Record<string, unknown> }
 ): Promise<AIAgentResponse> {
   try {
-    // 1. Submit task — returns { task_id, agent_id, user_id, session_id }
-    const submitRes = await fetchWrapper('/api/agent', {
+    const response = await fetchWrapper('/api/agent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -104,7 +99,7 @@ export async function callAIAgent(
       }),
     })
 
-    if (!submitRes) {
+    if (!response) {
       return {
         success: false,
         response: { status: 'error', result: {}, message: 'No response from server' },
@@ -112,72 +107,12 @@ export async function callAIAgent(
       }
     }
 
-    const submitData = await submitRes.json()
-
-    // Sync provider may return immediate normalized payload
-    if (submitData.response) {
-      return {
-        ...submitData,
-        agent_id: submitData.agent_id ?? agent_id,
-        user_id: submitData.user_id ?? options?.user_id,
-        session_id: submitData.session_id ?? options?.session_id,
-      }
-    }
-
-    // If submit failed or no task_id returned, return as-is
-    if (!submitData.task_id) {
-      return submitData.success === false
-        ? submitData
-        : {
-            success: false,
-            response: { status: 'error', result: {}, message: 'No task_id in response' },
-            error: 'No task_id in response',
-          }
-    }
-
-    const { task_id, user_id, session_id } = submitData
-
-    // 2. Poll POST /api/agent with { task_id } — adaptive backoff from CSR
-    const startTime = Date.now()
-    let attempt = 0
-
-    while (Date.now() - startTime < POLL_TIMEOUT_MS) {
-      const delay = Math.min(300 * Math.pow(1.5, attempt), 3000)
-      await new Promise(r => setTimeout(r, delay))
-      attempt++
-
-      const pollRes = await fetchWrapper('/api/agent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ task_id }),
-      })
-      if (!pollRes) {
-        continue // fetchWrapper returned undefined (redirect/error) — retry next poll
-      }
-      const pollData = await pollRes.json()
-
-      if (pollData.status === 'processing') {
-        continue
-      }
-
-      // Completed or failed — attach agent_id/user_id/session_id and return
-      return {
-        ...pollData,
-        agent_id,
-        user_id,
-        session_id,
-      }
-    }
-
-    // Timed out
+    const data = await response.json()
     return {
-      success: false,
-      response: {
-        status: 'error',
-        result: {},
-        message: 'Agent task timed out after 5 minutes',
-      },
-      error: 'Agent task timed out after 5 minutes',
+      ...data,
+      agent_id: data.agent_id ?? agent_id,
+      user_id: data.user_id ?? options?.user_id,
+      session_id: data.session_id ?? options?.session_id,
     }
   } catch (error) {
     return {

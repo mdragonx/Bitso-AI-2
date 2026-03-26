@@ -28,16 +28,20 @@ export const analysisTriggerRequestSchema = z.object({
   agent_id: z.string().trim().min(1),
   assets: z.array(z.unknown()).optional(),
   metadata: z.record(z.unknown()).optional(),
-});
+}).strict();
 
-export const analysisTriggerResponseSchema = apiEnvelopeSchema(
-  z
-    .object({
-      task_id: z.string().optional(),
-      result: z.unknown().optional(),
-    })
-    .passthrough()
-);
+export const analysisTriggerResponseSchema = z.object({
+  success: z.boolean(),
+  response: z.object({
+    status: z.enum(['success', 'error']),
+    result: z.record(z.unknown()),
+    message: z.string().optional(),
+  }),
+  module_outputs: z.record(z.unknown()).optional(),
+  timestamp: z.string().optional(),
+  error: z.string().optional(),
+  details: z.unknown().optional(),
+});
 
 export const recommendationRecordSchema = z
   .object({

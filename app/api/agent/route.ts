@@ -163,9 +163,6 @@ function validateAgainstSchema(
 }
 
 function validatePayload(body: unknown): AIRequestInput {
-  if (body && typeof body === 'object' && 'task_id' in (body as Record<string, unknown>)) {
-    throw new Error('task_id polling is not supported for configured provider')
-  }
   if (body && typeof body === 'object' && 'user_id' in (body as Record<string, unknown>)) {
     throw new Error('Validation failed: user_id is derived from the authenticated session and cannot be provided by the client')
   }
@@ -406,7 +403,7 @@ async function postHandler(request: NextRequest) {
         response: { status: 'error', result: {}, message: errorMsg },
         error: errorMsg,
       },
-      { status: errorMsg.includes('Validation failed') || errorMsg.includes('task_id polling') ? 400 : 500 }
+      { status: errorMsg.includes('Validation failed') ? 400 : 500 }
     )
     response.headers.set('x-correlation-id', correlation.correlationId)
     response.headers.set('x-request-id', correlation.requestId)
