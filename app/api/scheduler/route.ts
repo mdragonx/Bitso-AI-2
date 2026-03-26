@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSessionFromRequest } from '@/lib/auth'
+import { getSchedulerProvider, resolveSchedulerProviderName } from '@/lib/scheduler/providerFactory'
+import { SchedulerProviderResult } from '@/lib/scheduler/providers/types'
 
-const SCHEDULER_BASE_URL = 'https://scheduler.studio.lyzr.ai'
-const LYZR_API_KEY = process.env.LYZR_API_KEY || ''
 const ENABLE_SCHEDULER = process.env.ENABLE_SCHEDULER?.toLowerCase() !== 'false'
-
 
 function schedulerDisabledResponse() {
   return NextResponse.json(
@@ -24,30 +23,11 @@ function featureCheck() {
   return null
 }
 
-function getHeaders() {
-  return {
-    'Content-Type': 'application/json',
-    'accept': 'application/json',
-    'x-api-key': LYZR_API_KEY,
-  }
-}
-
-function apiKeyCheck() {
-  if (!LYZR_API_KEY) {
-    return NextResponse.json(
-      { success: false, error: 'LYZR_API_KEY not configured on server' },
-      { status: 500 }
-    )
-  }
-  return null
-}
-
 function getAuthenticatedUserId(request: NextRequest) {
   const session = getSessionFromRequest(request)
   const authenticatedUserId = session?.userId
 
   if (!authenticatedUserId) {
-    // Audit log: identity resolution failed for scheduler route.
     return {
       userId: null,
       error: NextResponse.json(
@@ -68,7 +48,6 @@ function validateClientIdentityInput(
     if (identity.value == null) continue
     const normalized = String(identity.value).trim()
     if (normalized && normalized !== userId) {
-      // Audit log: client supplied identity did not match authenticated user context.
       return NextResponse.json(
         { success: false, error: `${identity.key} must match authenticated user identity` },
         { status: 400 }
@@ -78,166 +57,179 @@ function validateClientIdentityInput(
   return null
 }
 
-// ---------------------------------------------------------------------------
-// GET — list | get | by-agent | logs | recent
-// ---------------------------------------------------------------------------
+function toBool(value: string | null): boolean | undefined {
+  if (value == null || value.trim() === '') return undefined
+  return value.toLowerCase() === 'true'
+}
+
+function toNumber(value: string | null): number | undefined {
+  if (value == null || value.trim() === '') return undefined
+  const n = Number(value)
+  return Number.isFinite(n) ? n : undefined
+}
+
+function providerError(result: SchedulerProviderResult<unknown>, fallbackStatus = 500) {
+  return NextResponse.json(
+    {
+      success: false,
+      provider: resolveSchedulerProviderName(),
+      error: result.error || 'Server error',
+      details: result.details,
+    },
+    { status: result.status || fallbackStatus }
+  )
+}
+
+function normalizedSuccess(action: string, payload: Record<string, unknown>, status = 200) {
+  return NextResponse.json(
+    {
+      success: true,
+      provider: resolveSchedulerProviderName(),
+      action,
+      ...payload,
+    },
+    { status }
+  )
+}
+
 export async function GET(request: NextRequest) {
   const feature = featureCheck()
   if (feature) return feature
-
-  const check = apiKeyCheck()
-  if (check) return check
 
   const { userId, error: userError } = getAuthenticatedUserId(request)
   if (userError || !userId) return userError
 
   try {
+    const provider = getSchedulerProvider()
     const { searchParams } = new URL(request.url)
     const action = searchParams.get('action') || 'list'
     const scheduleId = searchParams.get('scheduleId')
     const agentId = searchParams.get('agentId')
+
     const identityQueryError = validateClientIdentityInput(userId, [
       { key: 'user_id', value: searchParams.get('user_id') },
       { key: 'userId', value: searchParams.get('userId') },
     ])
     if (identityQueryError) return identityQueryError
 
-    let url: string
-
     switch (action) {
-      // GET /schedules/{schedule_id}
       case 'get': {
         if (!scheduleId) {
           return NextResponse.json({ success: false, error: 'scheduleId is required' }, { status: 400 })
         }
-        url = `${SCHEDULER_BASE_URL}/schedules/${scheduleId}`
-        break
+        const result = await provider.get(userId, scheduleId)
+        if (!result.success || !result.data) return providerError(result)
+        return normalizedSuccess('get', result.data.schedule)
       }
 
-      // GET /schedules/by-agent/{agent_id}
       case 'by-agent': {
         if (!agentId) {
           return NextResponse.json({ success: false, error: 'agentId is required' }, { status: 400 })
         }
-        url = `${SCHEDULER_BASE_URL}/schedules/by-agent/${agentId}`
-        break
+        const result = await provider.byAgent(userId, agentId)
+        if (!result.success || !result.data) return providerError(result)
+        return normalizedSuccess('by-agent', result.data)
       }
 
-      // GET /schedules/{schedule_id}/logs?skip=&limit=
       case 'logs': {
         if (!scheduleId) {
           return NextResponse.json({ success: false, error: 'scheduleId is required' }, { status: 400 })
         }
-        const logsQuery = new URLSearchParams()
-        if (searchParams.get('skip')) logsQuery.set('skip', searchParams.get('skip')!)
-        if (searchParams.get('limit')) logsQuery.set('limit', searchParams.get('limit')!)
-        const logsQs = logsQuery.toString() ? `?${logsQuery}` : ''
-        url = `${SCHEDULER_BASE_URL}/schedules/${scheduleId}/logs${logsQs}`
-        break
+        const result = await provider.logs({
+          userId,
+          scheduleId,
+          skip: toNumber(searchParams.get('skip')),
+          limit: toNumber(searchParams.get('limit')),
+        })
+        if (!result.success || !result.data) return providerError(result)
+        return normalizedSuccess('logs', result.data)
       }
 
-      // GET /schedules/executions/recent?agent_id=&success=&hours=&days=&skip=&limit=
       case 'recent': {
-        const recentQuery = new URLSearchParams()
-        if (agentId) recentQuery.set('agent_id', agentId)
-        if (searchParams.get('success')) recentQuery.set('success', searchParams.get('success')!)
-        if (searchParams.get('hours')) recentQuery.set('hours', searchParams.get('hours')!)
-        if (searchParams.get('days')) recentQuery.set('days', searchParams.get('days')!)
-        if (searchParams.get('skip')) recentQuery.set('skip', searchParams.get('skip')!)
-        if (searchParams.get('limit')) recentQuery.set('limit', searchParams.get('limit')!)
-        const recentQs = recentQuery.toString() ? `?${recentQuery}` : ''
-        url = `${SCHEDULER_BASE_URL}/schedules/executions/recent${recentQs}`
-        break
+        const result = await provider.recent({
+          userId,
+          agentId,
+          success: toBool(searchParams.get('success')),
+          hours: toNumber(searchParams.get('hours')),
+          days: toNumber(searchParams.get('days')),
+          skip: toNumber(searchParams.get('skip')),
+          limit: toNumber(searchParams.get('limit')),
+        })
+        if (!result.success || !result.data) return providerError(result)
+        return normalizedSuccess('recent', result.data)
       }
 
-      // GET /schedules/?user_id=&agent_id=&is_active=&skip=&limit=
       case 'list':
       default: {
-        const listQuery = new URLSearchParams()
-        listQuery.set('user_id', userId)
-        if (agentId) listQuery.set('agent_id', agentId)
-        if (searchParams.get('is_active')) listQuery.set('is_active', searchParams.get('is_active')!)
-        if (searchParams.get('skip')) listQuery.set('skip', searchParams.get('skip')!)
-        if (searchParams.get('limit')) listQuery.set('limit', searchParams.get('limit')!)
-        url = `${SCHEDULER_BASE_URL}/schedules/?${listQuery}`
-        break
+        const result = await provider.list({
+          userId,
+          agentId,
+          isActive: toBool(searchParams.get('is_active')),
+          skip: toNumber(searchParams.get('skip')),
+          limit: toNumber(searchParams.get('limit')),
+        })
+        if (!result.success || !result.data) return providerError(result)
+        return normalizedSuccess('list', result.data)
       }
     }
-
-    const response = await fetch(url, { headers: getHeaders() })
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      return NextResponse.json(
-        { success: false, error: `Scheduler API error: ${response.status}`, details: errorText },
-        { status: response.status }
-      )
-    }
-
-    const data = await response.json()
-    return NextResponse.json({ success: true, ...data })
   } catch (error) {
     return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Server error' },
+      {
+        success: false,
+        provider: resolveSchedulerProviderName(),
+        error: error instanceof Error ? error.message : 'Server error',
+      },
       { status: 500 }
     )
   }
 }
 
-// ---------------------------------------------------------------------------
-// POST — create | pause | resume | trigger
-// ---------------------------------------------------------------------------
 export async function POST(request: NextRequest) {
   const feature = featureCheck()
   if (feature) return feature
-
-  const check = apiKeyCheck()
-  if (check) return check
 
   const { userId, error: userError } = getAuthenticatedUserId(request)
   if (userError || !userId) return userError
 
   try {
+    const provider = getSchedulerProvider()
     const body = await request.json()
     const { action, scheduleId, ...params } = body
+
     const identityBodyError = validateClientIdentityInput(userId, [
       { key: 'user_id', value: body?.user_id },
       { key: 'userId', value: body?.userId },
     ])
     if (identityBodyError) return identityBodyError
 
-    let url: string
-    let fetchBody: string | undefined
-
     switch (action) {
-      // POST /schedules/{schedule_id}/trigger  → 202 Accepted
       case 'trigger': {
         if (!scheduleId) {
           return NextResponse.json({ success: false, error: 'scheduleId is required' }, { status: 400 })
         }
-        url = `${SCHEDULER_BASE_URL}/schedules/${scheduleId}/trigger`
-        break
+        const result = await provider.trigger(userId, scheduleId)
+        if (!result.success || !result.data) return providerError(result)
+        return normalizedSuccess('trigger', result.data, result.status || 200)
       }
 
-      // POST /schedules/{schedule_id}/pause  → 200 with updated schedule
       case 'pause': {
         if (!scheduleId) {
           return NextResponse.json({ success: false, error: 'scheduleId is required' }, { status: 400 })
         }
-        url = `${SCHEDULER_BASE_URL}/schedules/${scheduleId}/pause`
-        break
+        const result = await provider.pause(userId, scheduleId)
+        if (!result.success || !result.data) return providerError(result)
+        return normalizedSuccess('pause', result.data.schedule)
       }
 
-      // POST /schedules/{schedule_id}/resume  → 200 with updated schedule
       case 'resume': {
         if (!scheduleId) {
           return NextResponse.json({ success: false, error: 'scheduleId is required' }, { status: 400 })
         }
-        url = `${SCHEDULER_BASE_URL}/schedules/${scheduleId}/resume`
-        break
+        const result = await provider.resume(userId, scheduleId)
+        if (!result.success || !result.data) return providerError(result)
+        return normalizedSuccess('resume', result.data.schedule)
       }
 
-      // POST /schedules/  → 201 with created schedule
       case 'create':
       default: {
         if (!params.agent_id || !params.cron_expression || !params.message) {
@@ -246,72 +238,44 @@ export async function POST(request: NextRequest) {
             { status: 400 }
           )
         }
-        url = `${SCHEDULER_BASE_URL}/schedules/`
-        fetchBody = JSON.stringify({
+
+        const result = await provider.create({
+          userId,
           agent_id: params.agent_id,
           cron_expression: params.cron_expression,
           message: params.message,
-          timezone: params.timezone || 'UTC',
-          user_id: userId,
-          max_retries: params.max_retries ?? 3,
-          retry_delay: params.retry_delay ?? 300,
+          timezone: params.timezone,
+          max_retries: params.max_retries,
+          retry_delay: params.retry_delay,
         })
-        break
+        if (!result.success || !result.data) return providerError(result)
+        return normalizedSuccess('create', result.data.schedule, result.status || 201)
       }
     }
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: getHeaders(),
-      ...(fetchBody && { body: fetchBody }),
-    })
-
-    // Trigger returns 202 Accepted with a string body
-    if (action === 'trigger') {
-      if (response.status === 202) {
-        return NextResponse.json({ success: true, message: 'Schedule triggered successfully' })
-      }
-      const errorText = await response.text()
-      return NextResponse.json(
-        { success: false, error: `Trigger failed: ${response.status}`, details: errorText },
-        { status: response.status }
-      )
-    }
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      return NextResponse.json(
-        { success: false, error: `Scheduler API error: ${response.status}`, details: errorText },
-        { status: response.status }
-      )
-    }
-
-    const data = await response.json()
-    return NextResponse.json({ success: true, ...data })
   } catch (error) {
     return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Server error' },
+      {
+        success: false,
+        provider: resolveSchedulerProviderName(),
+        error: error instanceof Error ? error.message : 'Server error',
+      },
       { status: 500 }
     )
   }
 }
 
-// ---------------------------------------------------------------------------
-// DELETE — delete schedule  (upstream returns 204 No Content)
-// ---------------------------------------------------------------------------
 export async function DELETE(request: NextRequest) {
   const feature = featureCheck()
   if (feature) return feature
-
-  const check = apiKeyCheck()
-  if (check) return check
 
   const { userId, error: userError } = getAuthenticatedUserId(request)
   if (userError || !userId) return userError
 
   try {
+    const provider = getSchedulerProvider()
     const body = await request.json()
     const { scheduleId } = body
+
     const identityBodyError = validateClientIdentityInput(userId, [
       { key: 'user_id', value: body?.user_id },
       { key: 'userId', value: body?.userId },
@@ -322,28 +286,17 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'scheduleId is required' }, { status: 400 })
     }
 
-    const response = await fetch(`${SCHEDULER_BASE_URL}/schedules/${scheduleId}`, {
-      method: 'DELETE',
-      headers: getHeaders(),
-    })
+    const result = await provider.delete(userId, scheduleId)
+    if (!result.success || !result.data) return providerError(result)
 
-    // Upstream returns 204 No Content on success
-    if (response.status === 204 || response.ok) {
-      return NextResponse.json({
-        success: true,
-        message: 'Schedule deleted successfully',
-        scheduleId,
-      })
-    }
-
-    const errorText = await response.text()
-    return NextResponse.json(
-      { success: false, error: `Failed to delete schedule: ${response.status}`, details: errorText },
-      { status: response.status }
-    )
+    return normalizedSuccess('delete', result.data)
   } catch (error) {
     return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Server error' },
+      {
+        success: false,
+        provider: resolveSchedulerProviderName(),
+        error: error instanceof Error ? error.message : 'Server error',
+      },
       { status: 500 }
     )
   }
