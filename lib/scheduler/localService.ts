@@ -1,5 +1,6 @@
 import getScheduleExecutionModel from '@/models/ScheduleExecution'
 import getScheduleModel from '@/models/Schedule'
+import { computeNextRunTime } from '@/lib/scheduler/worker'
 
 interface ScheduleCreateInput {
   owner_user_id: string
@@ -104,12 +105,16 @@ export async function listSchedulesByAgent(owner_user_id: string, agent_id: stri
 
 export async function createSchedule(input: ScheduleCreateInput) {
   const Schedule = await getScheduleModel()
+  const timezone = input.timezone || 'UTC'
+  const nextRunTime = computeNextRunTime(input.cron_expression, timezone, new Date())
+
   const created = await Schedule.create({
     ...input,
-    timezone: input.timezone || 'UTC',
+    timezone,
     max_retries: input.max_retries ?? 3,
     retry_delay: input.retry_delay ?? 300,
     is_active: true,
+    next_run_time: nextRunTime,
   })
 
   return normalizeSchedule(created)
@@ -132,7 +137,11 @@ export async function pauseSchedule(owner_user_id: string, scheduleId: string) {
 }
 
 export async function resumeSchedule(owner_user_id: string, scheduleId: string) {
-  return updateSchedule(owner_user_id, scheduleId, { is_active: true })
+  const schedule = await getScheduleDoc(owner_user_id, scheduleId)
+  if (!schedule) return null
+
+  const nextRunTime = computeNextRunTime(schedule.cron_expression, schedule.timezone || 'UTC', new Date())
+  return updateSchedule(owner_user_id, scheduleId, { is_active: true, next_run_time: nextRunTime })
 }
 
 export async function deleteSchedule(owner_user_id: string, scheduleId: string) {
