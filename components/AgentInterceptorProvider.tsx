@@ -391,7 +391,7 @@ function GlobalErrorModal({
 }
 
 /**
- * Provider that installs the global fetch interceptor for Lyzr Agent API calls.
+ * Provider that installs the global fetch interceptor for internal agent API calls.
  * Shows error modal when issues are detected, lets user click "Fix with AI".
  *
  * Add this to your layout.tsx to enable error detection for ALL agent calls.
