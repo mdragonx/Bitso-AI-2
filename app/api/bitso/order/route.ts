@@ -7,6 +7,28 @@ import getBitsoCredentialModel from '@/models/BitsoCredential';
 import getTradeModel from '@/models/Trade';
 import { getBitsoBaseUrl, runtimeConfig } from '@/lib/config/runtime';
 
+const orderRouteDependencies = {
+  migratePlaintextBitsoSecrets,
+  getBitsoCredentialModel,
+  getTradeModel,
+  decryptBitsoCredentialPair,
+  validateExecutionRiskRules,
+  persistRejectedTradeAttempt,
+};
+
+export function __setBitsoOrderRouteTestDependencies(overrides: Partial<typeof orderRouteDependencies>) {
+  Object.assign(orderRouteDependencies, overrides);
+}
+
+export function __resetBitsoOrderRouteTestDependencies() {
+  orderRouteDependencies.migratePlaintextBitsoSecrets = migratePlaintextBitsoSecrets;
+  orderRouteDependencies.getBitsoCredentialModel = getBitsoCredentialModel;
+  orderRouteDependencies.getTradeModel = getTradeModel;
+  orderRouteDependencies.decryptBitsoCredentialPair = decryptBitsoCredentialPair;
+  orderRouteDependencies.validateExecutionRiskRules = validateExecutionRiskRules;
+  orderRouteDependencies.persistRejectedTradeAttempt = persistRejectedTradeAttempt;
+}
+
 function createBitsoAuthHeader(apiKey: string, apiSecret: string, method: string, path: string, body: string = '') {
   const nonce = Date.now().toString();
   const message = nonce + method.toUpperCase() + path + body;
@@ -33,8 +55,8 @@ function riskViolation(risk_violation_code: string, error: string, details: Reco
 async function handler(req: NextRequest) {
   try {
     const ownerUserId = getCurrentUserId(req);
-    await migratePlaintextBitsoSecrets();
-    const Model = await getBitsoCredentialModel();
+    await orderRouteDependencies.migratePlaintextBitsoSecrets();
+    const Model = await orderRouteDependencies.getBitsoCredentialModel();
     const creds = await Model.find({ owner_user_id: ownerUserId });
 
     if (!Array.isArray(creds) || creds.length === 0) {
@@ -42,7 +64,7 @@ async function handler(req: NextRequest) {
     }
 
     const credential = creds[0];
-    const { apiKey, apiSecret } = decryptBitsoCredentialPair(credential.toObject ? credential.toObject() : credential);
+    const { apiKey, apiSecret } = orderRouteDependencies.decryptBitsoCredentialPair(credential.toObject ? credential.toObject() : credential);
 
     const body = await req.json();
     const { book, side, type = 'market', major, minor, price, idempotency_key } = body;
@@ -52,7 +74,7 @@ async function handler(req: NextRequest) {
     }
 
     if (idempotency_key) {
-      const TradeModel = await getTradeModel();
+      const TradeModel = await orderRouteDependencies.getTradeModel();
       const existingTrade = await TradeModel.findOne({
         owner_user_id: ownerUserId,
         idempotency_key,
@@ -75,7 +97,7 @@ async function handler(req: NextRequest) {
     }
 
     const normalizedBook = normalizeBook(book);
-    const riskCheck = await validateExecutionRiskRules({
+    const riskCheck = await orderRouteDependencies.validateExecutionRiskRules({
       ownerUserId,
       book: normalizedBook,
       side,
@@ -89,7 +111,7 @@ async function handler(req: NextRequest) {
     });
 
     if (!riskCheck.ok) {
-      await persistRejectedTradeAttempt({
+      await orderRouteDependencies.persistRejectedTradeAttempt({
         ownerUserId,
         idempotencyKey: idempotency_key,
         pair: normalizedBook,

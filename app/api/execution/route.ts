@@ -9,6 +9,20 @@ import {
 import { parseOrThrow } from '@/lib/validation/trading';
 import { executeApprovedRecommendation } from '@/lib/services/executionService';
 
+const executionDependencies = {
+  executeApprovedRecommendation,
+};
+
+export function __setExecutionRouteTestDependencies(
+  overrides: Partial<typeof executionDependencies>
+) {
+  Object.assign(executionDependencies, overrides);
+}
+
+export function __resetExecutionRouteTestDependencies() {
+  executionDependencies.executeApprovedRecommendation = executeApprovedRecommendation;
+}
+
 async function handler(req: NextRequest) {
   const startedAt = Date.now();
   const correlation = getCorrelationContextFromRequest(req);
@@ -27,7 +41,7 @@ async function handler(req: NextRequest) {
 
     withLifecycleLog('info', 'execution_request_received', baseLogContext);
 
-    const result = await executeApprovedRecommendation(ownerUserId, payload);
+    const result = await executionDependencies.executeApprovedRecommendation(ownerUserId, payload);
 
     if (!result.success) {
       const latencyMs = Date.now() - startedAt;
