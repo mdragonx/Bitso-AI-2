@@ -79,7 +79,9 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
 /**
  * Call the AI Agent via server-side API route.
- * Submits an async task then polls from the client until completion.
+ * Supports both:
+ *  - async task flow (Lyzr): submit then poll until completion
+ *  - sync flow (openai_compatible): immediate normalized response
  */
 export async function callAIAgent(
   message: string,
@@ -110,7 +112,17 @@ export async function callAIAgent(
 
     const submitData = await submitRes.json()
 
-    // If submit itself failed or no task_id returned, return as-is
+    // Sync provider may return immediate normalized payload
+    if (submitData.response) {
+      return {
+        ...submitData,
+        agent_id: submitData.agent_id ?? agent_id,
+        user_id: submitData.user_id ?? options?.user_id,
+        session_id: submitData.session_id ?? options?.session_id,
+      }
+    }
+
+    // If submit failed or no task_id returned, return as-is
     if (!submitData.task_id) {
       return submitData.success === false
         ? submitData
