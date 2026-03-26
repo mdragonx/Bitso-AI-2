@@ -14,6 +14,7 @@ const MIGRATION_IDS = [
   '2026-03-26.bootstrap.touch-core-model-collections.v1',
   '2026-03-26.bootstrap.sync-core-model-indexes.v1',
   '2026-03-26.bootstrap.feature-aware-collections-and-readiness.v1',
+  '2026-03-26.bootstrap.trading-models-crud-and-indexes.v2',
 ] as const;
 
 type ActiveModelLoader = {

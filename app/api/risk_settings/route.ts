@@ -1,20 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUserId, withAuth } from '@/lib/auth';
-import getRiskSettingModel from '@/models/RiskSetting';
+import { createRiskSettingsForUser, getRiskSettingsForUser, updateRiskSettingsForUser } from '@/lib/services/tradingDataService';
 
 async function handler(req: NextRequest) {
   try {
-    const Model = await getRiskSettingModel();
     const userId = getCurrentUserId(req);
 
     if (req.method === 'GET') {
-      const data = await Model.find({ owner_user_id: userId });
+      const data = await getRiskSettingsForUser(userId);
       return NextResponse.json({ success: true, data });
     }
 
     if (req.method === 'POST') {
       const body = await req.json();
-      const doc = await Model.create({ ...body, owner_user_id: userId });
+      const doc = await createRiskSettingsForUser(userId, body);
       return NextResponse.json({ success: true, data: doc });
     }
 
@@ -22,13 +21,14 @@ async function handler(req: NextRequest) {
       const body = await req.json();
       const { id, ...updates } = body;
       if (!id) return NextResponse.json({ success: false, error: 'id is required' }, { status: 400 });
-      const doc = await Model.findOneAndUpdate({ _id: id, owner_user_id: userId }, updates, { new: true });
+      const doc = await updateRiskSettingsForUser(userId, id, updates);
       return NextResponse.json({ success: true, data: doc });
     }
 
     return NextResponse.json({ success: false, error: 'Method not allowed' }, { status: 405 });
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message || 'Server error' }, { status: 500 });
+    const status = error?.message?.includes('Validation failed') ? 400 : 500;
+    return NextResponse.json({ success: false, error: error.message || 'Server error' }, { status });
   }
 }
 
