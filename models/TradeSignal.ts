@@ -7,7 +7,7 @@ const TradeSignalSchema = new Schema(
     signal_type: { type: String, enum: ['BUY', 'SELL', 'HOLD'], required: true },
     confidence: { type: Number, required: true },
     indicators: { type: Object, default: {} },
-    market_context: { type: String, default: '' },
+    market_context: { type: Schema.Types.Mixed, default: {} },
     risk_assessment: { type: String, default: '' },
     reasoning: { type: String, default: '' },
     recommended_entry_price: { type: String, default: '' },
