@@ -5,6 +5,11 @@ import path from 'path'
 import { getAIProviderClient } from '@/lib/ai/providerFactory'
 import type { AIRequestInput } from '@/lib/ai/types'
 import { analysisTriggerRequestSchema } from '@/lib/contracts/apiContracts'
+import {
+  getCorrelationContextFromRequest,
+  recordAnalysisMetric,
+  withLifecycleLog,
+} from '@/lib/observability/lifecycle'
 import { parseOrThrow } from '@/lib/validation/trading'
 
 const MARKET_ANALYSIS_COORDINATOR_AGENT_ID = '69c440a030aebe1ba52aede0'
@@ -185,7 +190,10 @@ function normalizeConfidence(raw: unknown): number {
   return Math.max(0, Math.min(100, raw))
 }
 
-async function runMarketCoordinatorFlow(input: AIRequestInput) {
+async function runMarketCoordinatorFlow(
+  input: AIRequestInput,
+  trace: { correlationId: string; requestId: string; userId: string | null }
+) {
   const metadata = (input.metadata && typeof input.metadata === 'object') ? input.metadata as Record<string, unknown> : {}
   const selectedPair = typeof metadata.selected_pair === 'string' ? metadata.selected_pair : 'unknown_pair'
   const timeframe = typeof metadata.timeframe === 'string' ? metadata.timeframe : 'unknown_timeframe'
@@ -212,11 +220,21 @@ Return JSON fields: signal (BUY/SELL/HOLD), confidence (0-100), summary, risk_as
 Context: ${JSON.stringify(sharedContext)}`
 
   const technicalOutput = await client.generateStructuredResponse(
-    { ...input, agent_id: TECHNICAL_ANALYSIS_AGENT_ID, message: technicalPrompt },
+    {
+      ...input,
+      agent_id: TECHNICAL_ANALYSIS_AGENT_ID,
+      message: technicalPrompt,
+      metadata: { ...metadata, correlation_id: trace.correlationId, parent_request_id: trace.requestId },
+    },
     SUB_AGENT_RESPONSE_SCHEMA
   )
   const marketOutput = await client.generateStructuredResponse(
-    { ...input, agent_id: MARKET_RESEARCH_AGENT_ID, message: marketPrompt },
+    {
+      ...input,
+      agent_id: MARKET_RESEARCH_AGENT_ID,
+      message: marketPrompt,
+      metadata: { ...metadata, correlation_id: trace.correlationId, parent_request_id: trace.requestId },
+    },
     SUB_AGENT_RESPONSE_SCHEMA
   )
 
@@ -250,6 +268,11 @@ Context: ${JSON.stringify(sharedContext)}`
   }
 
   const intermediateOutputs = {
+    trace: {
+      correlation_id: trace.correlationId,
+      request_id: trace.requestId,
+      user_id: trace.userId,
+    },
     coordinator_input: sanitizeForLogs(sharedContext),
     technical_analysis_output: sanitizeForLogs(technicalOutput.result),
     market_research_output: sanitizeForLogs(marketOutput.result),
@@ -272,13 +295,29 @@ Context: ${JSON.stringify(sharedContext)}`
 }
 
 export async function POST(request: NextRequest) {
+  const startedAt = Date.now()
+  const correlation = getCorrelationContextFromRequest(request)
+
   try {
     const body = await request.json()
     const input = validatePayload(body)
+    const userId = typeof input.user_id === 'string' ? input.user_id : null
+    const baseLogContext = {
+      correlation_id: correlation.correlationId,
+      request_id: correlation.requestId,
+      user_id: userId,
+      agent_id: input.agent_id,
+    }
+
+    withLifecycleLog('info', 'analysis_request_received', baseLogContext)
 
     const schema = await loadResponseSchema(input.agent_id)
     const providerResponse = input.agent_id === MARKET_ANALYSIS_COORDINATOR_AGENT_ID
-      ? await runMarketCoordinatorFlow(input)
+      ? await runMarketCoordinatorFlow(input, {
+          correlationId: correlation.correlationId,
+          requestId: correlation.requestId,
+          userId,
+        })
       : await getAIProviderClient().generateStructuredResponse(input, schema)
 
     if (schema) {
@@ -287,7 +326,14 @@ export async function POST(request: NextRequest) {
         const errorMessage = `Response validation failed for agent_id=${input.agent_id}: ${validation.errors.join(
           '; '
         )}`
-        return NextResponse.json(
+        const latencyMs = Date.now() - startedAt
+        recordAnalysisMetric({ latencyMs, success: false })
+        withLifecycleLog('warn', 'analysis_response_schema_validation_failed', {
+          ...baseLogContext,
+          latency_ms: latencyMs,
+          validation_errors: validation.errors,
+        })
+        const response = NextResponse.json(
           {
             success: false,
             response: { status: 'error', result: {}, message: errorMessage },
@@ -300,10 +346,21 @@ export async function POST(request: NextRequest) {
           },
           { status: 502 }
         )
+        response.headers.set('x-correlation-id', correlation.correlationId)
+        response.headers.set('x-request-id', correlation.requestId)
+        return response
       }
     }
 
-    return NextResponse.json({
+    const latencyMs = Date.now() - startedAt
+    recordAnalysisMetric({ latencyMs, success: true })
+    withLifecycleLog('info', 'analysis_request_completed', {
+      ...baseLogContext,
+      latency_ms: latencyMs,
+      provider_status: providerResponse.status,
+    })
+
+    const response = NextResponse.json({
       success: true,
       response: {
         status: providerResponse.status,
@@ -313,9 +370,20 @@ export async function POST(request: NextRequest) {
       module_outputs: providerResponse.module_outputs,
       timestamp: new Date().toISOString(),
     })
+    response.headers.set('x-correlation-id', correlation.correlationId)
+    response.headers.set('x-request-id', correlation.requestId)
+    return response
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Server error'
-    return NextResponse.json(
+    const latencyMs = Date.now() - startedAt
+    recordAnalysisMetric({ latencyMs, success: false })
+    withLifecycleLog('error', 'analysis_request_failed', {
+      correlation_id: correlation.correlationId,
+      request_id: correlation.requestId,
+      latency_ms: latencyMs,
+      error_message: errorMsg,
+    })
+    const response = NextResponse.json(
       {
         success: false,
         response: { status: 'error', result: {}, message: errorMsg },
@@ -323,5 +391,8 @@ export async function POST(request: NextRequest) {
       },
       { status: errorMsg.includes('Validation failed') || errorMsg.includes('task_id polling') ? 400 : 500 }
     )
+    response.headers.set('x-correlation-id', correlation.correlationId)
+    response.headers.set('x-request-id', correlation.requestId)
+    return response
   }
 }
