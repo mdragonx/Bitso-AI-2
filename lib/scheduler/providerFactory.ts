@@ -6,8 +6,12 @@ const ENABLE_SCHEDULER = process.env.ENABLE_SCHEDULER?.toLowerCase() !== 'false'
 
 export function resolveSchedulerProviderName(): SchedulerProviderName {
   const override = process.env.SCHEDULER_PROVIDER?.toLowerCase()
-  if (override === 'lyzr' || override === 'local') {
-    return override
+  if (override === 'local') {
+    return 'local'
+  }
+
+  if (override === 'lyzr') {
+    return process.env.LYZR_API_KEY ? 'lyzr' : 'local'
   }
 
   if (ENABLE_SCHEDULER && process.env.LYZR_API_KEY) {

@@ -63,6 +63,9 @@ export interface Webhook {
 
 interface ApiResult<T = Record<string, unknown>> {
   success: boolean
+  provider?: 'lyzr' | 'local'
+  code?: string
+  action?: string
   error?: string
   details?: string
   data?: T
@@ -88,6 +91,11 @@ function schedulerDisabledResult<T extends Record<string, unknown>>(fallback: T)
     error: getFeatureDisabledMessage('scheduler'),
     ...fallback,
   }
+}
+
+function stripEnvelope<T extends Record<string, unknown>>(payload: Record<string, unknown>): T {
+  const { success: _success, error: _error, details: _details, provider: _provider, action: _action, code: _code, ...rest } = payload
+  return rest as T
 }
 
 // ---------------------------------------------------------------------------
@@ -149,7 +157,7 @@ export async function getSchedule(scheduleId: string): Promise<{ success: boolea
     const res = await fetchWrapper(`/api/scheduler?${qs}`)
     const data = await res.json()
     if (!data.success) return { success: false, error: data.error }
-    const { success: _, error: __, details: ___, ...schedule } = data
+    const schedule = stripEnvelope<Schedule>(data)
     return { success: true, schedule: schedule as unknown as Schedule }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Network error' }
