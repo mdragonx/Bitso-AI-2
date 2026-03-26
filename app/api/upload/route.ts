@@ -2,9 +2,33 @@ import { NextRequest, NextResponse } from 'next/server'
 
 const LYZR_UPLOAD_URL = 'https://agent-prod.studio.lyzr.ai/v3/assets/upload'
 const LYZR_API_KEY = process.env.LYZR_API_KEY || ''
+const ENABLE_UPLOAD = process.env.ENABLE_UPLOAD?.toLowerCase() !== 'false'
+
+
+function uploadDisabledResponse() {
+  return NextResponse.json(
+    {
+      success: false,
+      asset_ids: [],
+      files: [],
+      total_files: 0,
+      successful_uploads: 0,
+      failed_uploads: 0,
+      message: 'Upload feature is disabled. Set ENABLE_UPLOAD=true to enable /api/upload.',
+      timestamp: new Date().toISOString(),
+      error: 'Upload feature disabled by server feature flag',
+      actionable: 'Update environment config with ENABLE_UPLOAD=true and restart the app.',
+    },
+    { status: 501 }
+  )
+}
 
 export async function POST(request: NextRequest) {
   try {
+    if (!ENABLE_UPLOAD) {
+      return uploadDisabledResponse()
+    }
+
     if (!LYZR_API_KEY) {
       return NextResponse.json(
         {

@@ -10,6 +10,7 @@ import DashboardSection from './sections/DashboardSection';
 import TradeHistorySection from './sections/TradeHistorySection';
 import RiskSettingsSection from './sections/RiskSettingsSection';
 import ApiSettingsSection from './sections/ApiSettingsSection';
+import { clientFeatureFlags } from '@/lib/featureFlags';
 
 const MARKET_ANALYSIS_AGENT = '69c440a030aebe1ba52aede0';
 const TRADE_EXECUTION_AGENT = '69c440b01b19ba3adafaf1d7';
@@ -385,6 +386,13 @@ export default function Page() {
     setAnalysisResult(null);
   };
 
+
+  const disabledFeatures = [
+    !clientFeatureFlags.rag ? 'RAG knowledge base' : null,
+    !clientFeatureFlags.upload ? 'file upload' : null,
+    !clientFeatureFlags.scheduler ? 'scheduler' : null,
+  ].filter(Boolean) as string[];
+
   useEffect(() => {
     if (activeScreen === 'history') {
       setHistoryLoading(true);
@@ -414,6 +422,11 @@ export default function Page() {
               </header>
 
               <main className="flex-1 p-6 overflow-y-auto">
+                {disabledFeatures.length > 0 && (
+                  <div className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                    Disabled backend features: {disabledFeatures.join(', ')}.
+                  </div>
+                )}
                 {activeScreen === 'dashboard' && (
                   <DashboardSection
                     selectedPair={selectedPair}

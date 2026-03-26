@@ -9,6 +9,7 @@
 
 import { useState } from 'react'
 import fetchWrapper from '@/lib/fetchWrapper'
+import { clientFeatureFlags, getFeatureDisabledMessage } from '@/lib/featureFlags'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -81,6 +82,14 @@ function buildQuery(params: Record<string, string | number | boolean | undefined
   return query.toString()
 }
 
+function schedulerDisabledResult<T extends Record<string, unknown>>(fallback: T): { success: false; error: string } & T {
+  return {
+    success: false,
+    error: getFeatureDisabledMessage('scheduler'),
+    ...fallback,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // GET operations
 // ---------------------------------------------------------------------------
@@ -92,6 +101,8 @@ export async function listSchedules(params?: {
   skip?: number
   limit?: number
 }): Promise<{ success: boolean; schedules: Schedule[]; total: number; error?: string }> {
+  if (!clientFeatureFlags.scheduler) return schedulerDisabledResult({ schedules: [], total: 0 })
+
   try {
     const qs = buildQuery({
       action: 'list',
@@ -131,6 +142,8 @@ export async function listSchedules(params?: {
  * - Updating UI state after write operations
  */
 export async function getSchedule(scheduleId: string): Promise<{ success: boolean; schedule?: Schedule; error?: string }> {
+  if (!clientFeatureFlags.scheduler) return schedulerDisabledResult({})
+
   try {
     const qs = buildQuery({ action: 'get', scheduleId })
     const res = await fetchWrapper(`/api/scheduler?${qs}`)
@@ -151,6 +164,8 @@ export async function getSchedulesForAgent(agentId: string): Promise<{
   webhooks: Webhook[]
   error?: string
 }> {
+  if (!clientFeatureFlags.scheduler) return schedulerDisabledResult({ schedules: [], webhooks: [] })
+
   try {
     const qs = buildQuery({ action: 'by-agent', agentId })
     const res = await fetchWrapper(`/api/scheduler?${qs}`)
@@ -172,6 +187,8 @@ export async function getScheduleLogs(
   scheduleId: string,
   params?: { skip?: number; limit?: number }
 ): Promise<{ success: boolean; executions: ExecutionLog[]; total: number; error?: string }> {
+  if (!clientFeatureFlags.scheduler) return schedulerDisabledResult({ executions: [], total: 0 })
+
   try {
     const qs = buildQuery({
       action: 'logs',
@@ -197,6 +214,8 @@ export async function getRecentExecutions(params?: {
   skip?: number
   limit?: number
 }): Promise<{ success: boolean; executions: ExecutionLog[]; total: number; error?: string }> {
+  if (!clientFeatureFlags.scheduler) return schedulerDisabledResult({ executions: [], total: 0 })
+
   try {
     const qs = buildQuery({
       action: 'recent',
@@ -229,6 +248,8 @@ export async function createSchedule(params: {
   max_retries?: number
   retry_delay?: number
 }): Promise<{ success: boolean; schedule?: Schedule; error?: string }> {
+  if (!clientFeatureFlags.scheduler) return schedulerDisabledResult({})
+
   try {
     const res = await fetchWrapper('/api/scheduler', {
       method: 'POST',
@@ -256,6 +277,8 @@ export async function createSchedule(params: {
  * "already paused/inactive" errors. Always call `loadSchedules()` or `fetchSchedules()` after pause.
  */
 export async function pauseSchedule(scheduleId: string): Promise<ApiResult> {
+  if (!clientFeatureFlags.scheduler) return schedulerDisabledResult({})
+
   if (!scheduleId) {
     return { success: false, error: 'scheduleId is required' }
   }
@@ -305,6 +328,8 @@ export async function pauseSchedule(scheduleId: string): Promise<ApiResult> {
  * "already active" errors. Always call `loadSchedules()` or `fetchSchedules()` after resume.
  */
 export async function resumeSchedule(scheduleId: string): Promise<ApiResult> {
+  if (!clientFeatureFlags.scheduler) return schedulerDisabledResult({})
+
   if (!scheduleId) {
     return { success: false, error: 'scheduleId is required' }
   }
@@ -356,6 +381,8 @@ export async function updateScheduleMessage(
   scheduleId: string,
   newMessage: string
 ): Promise<{ success: boolean; schedule?: Schedule; newScheduleId?: string; error?: string }> {
+  if (!clientFeatureFlags.scheduler) return schedulerDisabledResult({})
+
   if (!scheduleId) {
     return { success: false, error: 'scheduleId is required' }
   }
@@ -399,6 +426,8 @@ export async function updateScheduleMessage(
 
 /** Manually trigger a schedule to run immediately (returns 202 async). */
 export async function triggerScheduleNow(scheduleId: string): Promise<ApiResult> {
+  if (!clientFeatureFlags.scheduler) return schedulerDisabledResult({})
+
   try {
     const res = await fetchWrapper('/api/scheduler', {
       method: 'POST',
@@ -417,6 +446,8 @@ export async function triggerScheduleNow(scheduleId: string): Promise<ApiResult>
 
 /** Permanently delete a schedule. */
 export async function deleteSchedule(scheduleId: string): Promise<ApiResult> {
+  if (!clientFeatureFlags.scheduler) return schedulerDisabledResult({})
+
   try {
     const res = await fetchWrapper('/api/scheduler', {
       method: 'DELETE',

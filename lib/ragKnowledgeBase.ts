@@ -8,6 +8,7 @@
 
 import { useState } from 'react'
 import fetchWrapper from '@/lib/fetchWrapper'
+import { clientFeatureFlags, getFeatureDisabledMessage } from '@/lib/featureFlags'
 
 // Supported file types
 export const SUPPORTED_FILE_TYPES = [
@@ -76,6 +77,10 @@ export interface CrawlResponse {
  * Get all documents in a knowledge base
  */
 export async function getDocuments(ragId: string): Promise<GetDocumentsResponse> {
+  if (!clientFeatureFlags.rag) {
+    return { success: false, error: getFeatureDisabledMessage('rag') }
+  }
+
   try {
     const response = await fetchWrapper('/api/rag', {
       method: 'POST',
@@ -97,6 +102,10 @@ export async function getDocuments(ragId: string): Promise<GetDocumentsResponse>
  * Upload and train a document to the knowledge base
  */
 export async function uploadAndTrainDocument(ragId: string, file: File): Promise<UploadResponse> {
+  if (!clientFeatureFlags.rag) {
+    return { success: false, error: getFeatureDisabledMessage('rag') }
+  }
+
   // Validate file type
   if (!SUPPORTED_FILE_TYPES.includes(file.type as SupportedFileType)) {
     return {
@@ -132,6 +141,10 @@ export async function deleteDocuments(
   ragId: string,
   documentNames: string[]
 ): Promise<DeleteResponse> {
+  if (!clientFeatureFlags.rag) {
+    return { success: false, error: getFeatureDisabledMessage('rag') }
+  }
+
   try {
     const response = await fetchWrapper('/api/rag', {
       method: 'DELETE',
@@ -155,6 +168,10 @@ export async function deleteDocuments(
  * Crawl a website and add its content to the knowledge base
  */
 export async function crawlWebsite(ragId: string, url: string): Promise<CrawlResponse> {
+  if (!clientFeatureFlags.rag) {
+    return { success: false, error: getFeatureDisabledMessage('rag') }
+  }
+
   try {
     const response = await fetchWrapper('/api/rag', {
       method: 'PATCH',
