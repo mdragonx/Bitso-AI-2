@@ -1,5 +1,5 @@
 /**
- * Internal endpoint used by the client to submit/poll agent tasks.
+ * Internal endpoint used by the client for synchronous agent calls.
  * Override with NEXT_PUBLIC_AGENT_API_ENDPOINT when needed.
  */
 export const INTERNAL_AGENT_ENDPOINT = process.env.NEXT_PUBLIC_AGENT_API_ENDPOINT || '/api/agent'

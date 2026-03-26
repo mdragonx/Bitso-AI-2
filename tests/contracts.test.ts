@@ -24,9 +24,16 @@ test('analysis trigger contracts validate request and response', () => {
 
   const response = analysisTriggerResponseSchema.parse({
     success: true,
-    data: { result: { signal: 'BUY' } },
+    response: { status: 'success', result: { signal: 'BUY' } },
   });
   assert.equal(response.success, true);
+});
+
+test('analysis trigger compatibility enforces synchronous request mode', () => {
+  assert.throws(
+    () => analysisTriggerRequestSchema.parse({ message: 'Analyze BTC', agent_id: 'agent-1', task_id: 'task-123' }),
+    /unrecognized key/i
+  );
 });
 
 test('recommendation retrieval response contract', () => {

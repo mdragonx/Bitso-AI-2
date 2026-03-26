@@ -64,3 +64,16 @@ test('spoofed user_id in payload is rejected', async () => {
   const payload = await response.json();
   assert.match(String(payload.error || ''), /user_id is derived from the authenticated session/i);
 });
+
+test('polling payload is rejected because the endpoint is synchronous only', async () => {
+  const token = createSessionToken('server-user-123', 'test@example.com');
+  const request = createRequest(
+    { message: 'Analyze BTC', agent_id: 'agent-1', task_id: 'task-1' },
+    `bitso_session=${token}`
+  );
+  const response = await POST(request);
+
+  assert.equal(response.status, 400);
+  const payload = await response.json();
+  assert.match(String(payload.error || ''), /unrecognized key/i);
+});
