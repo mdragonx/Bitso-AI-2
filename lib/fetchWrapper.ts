@@ -36,7 +36,7 @@ const fetchWrapper = async (...args) => {
       return;
     }
 
-    // Tool authentication required on /api/agent - inspect body for tool_auth keyword
+    // Tool authentication can be returned by the internal agent endpoint - inspect body for tool_auth keyword
     const requestUrl = typeof args[0] === "string" ? args[0] : args[0]?.url || "";
     if (requestUrl.includes("/api/agent")) {
       const contentType = response.headers.get("content-type") || "";
@@ -48,7 +48,7 @@ const fetchWrapper = async (...args) => {
           if (bodyStr.includes("tool_auth") && isInIframe()) {
             // Structured response (HTTP 401 from proxy)
             const detail = body?.detail;
-            // Stringified error (HTTP 200 from Lyzr async task)
+            // Stringified error (HTTP 200 from async agent task payload)
             const errorStr = body?.error || body?.response?.message || "";
 
             const toolName = detail?.tool_name || errorStr.match?.(/['"]tool_name['"]:\s*['"]([^'"]+)['"]/)?.[1];

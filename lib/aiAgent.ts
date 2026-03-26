@@ -81,8 +81,8 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 /**
  * Call the AI Agent via server-side API route.
  * Supports both:
- *  - async task flow (Lyzr): submit then poll until completion
- *  - sync flow (openai_compatible): immediate normalized response
+ *  - async task flow: submit to internal API, then poll until completion
+ *  - sync flow: immediate normalized response from the internal API
  */
 export async function callAIAgent(
   message: string,

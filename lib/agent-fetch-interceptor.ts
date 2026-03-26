@@ -1,14 +1,12 @@
 /**
- * Global Fetch Interceptor for Lyzr Agent API calls
+ * Global fetch interceptor for internal agent endpoint calls.
  *
  * Detects parse failures and shows modal for user to click "Fix with AI"
  * Works even when AI-generated code uses raw fetch() instead of useAgent hook
  */
 
-// Lyzr Agent API endpoint to intercept
-const LYZR_API_URL = 'https://agent-prod.studio.lyzr.ai/v3/inference/chat'
-
 import { isInIframe } from '@/components/ErrorBoundary'
+import { INTERNAL_AGENT_ENDPOINT, isInternalAgentEndpoint } from '@/lib/agent-endpoint'
 
 interface ErrorDetails {
   type: 'react_error' | 'api_error' | 'parse_error' | 'network_error' | 'unknown'
@@ -103,7 +101,7 @@ function detectResponseIssue(data: Record<string, unknown>): { hasIssue: boolean
         type: 'api_error',
         message: data.error as string,
         raw_response: (data.details || data.raw_response) as string | undefined,
-        endpoint: LYZR_API_URL,
+        endpoint: INTERNAL_AGENT_ENDPOINT,
         timestamp: new Date().toISOString(),
         userAgent: navigator.userAgent,
         url: window.location.href,
@@ -119,7 +117,7 @@ function detectResponseIssue(data: Record<string, unknown>): { hasIssue: boolean
         type: 'parse_error',
         message: 'JSON parsing failed but valid data exists in raw_response',
         raw_response: data.raw_response as string | undefined,
-        endpoint: LYZR_API_URL,
+        endpoint: INTERNAL_AGENT_ENDPOINT,
         timestamp: new Date().toISOString(),
         userAgent: navigator.userAgent,
         url: window.location.href,
@@ -141,7 +139,7 @@ function detectResponseIssue(data: Record<string, unknown>): { hasIssue: boolean
             type: 'parse_error',
             message: response.error as string,
             raw_response: rawResponse,
-            endpoint: LYZR_API_URL,
+            endpoint: INTERNAL_AGENT_ENDPOINT,
             timestamp: new Date().toISOString(),
             userAgent: navigator.userAgent,
             url: window.location.href,
@@ -191,12 +189,12 @@ async function interceptedFetch(
 
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
 
-  // Only intercept Lyzr Agent API calls
-  if (!url.includes('agent-prod.studio.lyzr.ai')) {
+  // Only intercept configured internal agent endpoint calls
+  if (!isInternalAgentEndpoint(url)) {
     return originalFetch(input, init)
   }
 
-  console.log('[AgentInterceptor] Intercepting Lyzr Agent API call')
+  console.log(`[AgentInterceptor] Intercepting agent API call (${INTERNAL_AGENT_ENDPOINT})`)
 
   try {
     const response = await originalFetch(input, init)
@@ -231,7 +229,7 @@ async function interceptedFetch(
     const error: ErrorDetails = {
       type: 'network_error',
       message: networkError instanceof Error ? networkError.message : 'Network request failed',
-      endpoint: '/api/agent',
+      endpoint: INTERNAL_AGENT_ENDPOINT,
       timestamp: new Date().toISOString(),
       userAgent: navigator.userAgent,
       url: window.location.href,
@@ -256,7 +254,7 @@ export function installAgentInterceptor(): void {
 
   window.fetch = interceptedFetch as typeof fetch
   interceptorInstalled = true
-  console.log('[AgentInterceptor] Installed global fetch interceptor for Lyzr Agent API')
+  console.log(`[AgentInterceptor] Installed global fetch interceptor for ${INTERNAL_AGENT_ENDPOINT}`)
 }
 
 /**

@@ -16,6 +16,7 @@
 import { useState, useCallback } from 'react'
 import { isInIframe, sendErrorToParent, requestFixFromParent } from '@/components/ErrorBoundary'
 import { callAIAgent, NormalizedAgentResponse, AIAgentResponse } from '@/lib/aiAgent'
+import { INTERNAL_AGENT_ENDPOINT } from '@/lib/agent-endpoint'
 
 // =============================================================================
 // Types
@@ -81,7 +82,7 @@ const createErrorDetails = (
   type,
   message,
   raw_response,
-  endpoint: 'https://agent-prod.studio.lyzr.ai/v3/inference/chat',
+  endpoint: INTERNAL_AGENT_ENDPOINT,
   timestamp: new Date().toISOString(),
   userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
   url: typeof window !== 'undefined' ? window.location.href : 'unknown',
