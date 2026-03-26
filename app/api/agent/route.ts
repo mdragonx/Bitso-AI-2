@@ -1,201 +1,79 @@
 import { NextRequest, NextResponse } from 'next/server'
-import parseLLMJson from '@/lib/jsonParser'
+import { readFile } from 'fs/promises'
+import path from 'path'
 
-const LYZR_TASK_URL = 'https://agent-prod.studio.lyzr.ai/v3/inference/chat/task'
-const LYZR_API_KEY = process.env.LYZR_API_KEY || ''
-const AI_PROVIDER = (process.env.AI_PROVIDER || 'lyzr').toLowerCase()
-const LOCAL_LLM_BASE_URL = process.env.LOCAL_LLM_BASE_URL || ''
-const LOCAL_LLM_API_KEY = process.env.LOCAL_LLM_API_KEY || ''
-const LOCAL_LLM_MODEL = process.env.LOCAL_LLM_MODEL || ''
+import { getAIProviderClient } from '@/lib/ai/providerFactory'
+import type { AIRequestInput } from '@/lib/ai/types'
 
-// Types
-interface ArtifactFile {
-  file_url: string
-  name: string
-  format_type: string
-}
+async function loadResponseSchema(agentId: string): Promise<Record<string, unknown> | undefined> {
+  const filename = `${agentId}_response.json`
+  const schemaPath = path.join(process.cwd(), 'response_schemas', filename)
 
-interface ModuleOutputs {
-  artifact_files?: ArtifactFile[]
-  [key: string]: any
-}
-
-interface NormalizedAgentResponse {
-  status: 'success' | 'error'
-  result: Record<string, any>
-  message?: string
-  metadata?: {
-    agent_name?: string
-    timestamp?: string
-    [key: string]: any
+  try {
+    const schemaContent = await readFile(schemaPath, 'utf8')
+    return JSON.parse(schemaContent) as Record<string, unknown>
+  } catch {
+    return undefined
   }
 }
 
-function generateUUID(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-    const r = (Math.random() * 16) | 0
-    const v = c === 'x' ? r : (r & 0x3) | 0x8
-    return v.toString(16)
-  })
-}
-
-function normalizeResponse(parsed: any): NormalizedAgentResponse {
-  if (!parsed) {
-    return {
-      status: 'error',
-      result: {},
-      message: 'Empty response from agent',
-    }
+function validatePayload(body: any): { valid: true; input: AIRequestInput } | { valid: false; error: string } {
+  if (!body || typeof body !== 'object') {
+    return { valid: false, error: 'Invalid request body' }
   }
 
-  if (typeof parsed === 'string') {
-    return {
-      status: 'success',
-      result: { text: parsed },
-      message: parsed,
-    }
+  if (body.task_id) {
+    return { valid: false, error: 'task_id polling is not supported for configured provider' }
   }
 
-  if (typeof parsed !== 'object') {
-    return {
-      status: 'success',
-      result: { value: parsed },
-      message: String(parsed),
-    }
-  }
+  const { message, agent_id, user_id, assets, metadata } = body
 
-  if ('status' in parsed && 'result' in parsed) {
-    return {
-      status: parsed.status === 'error' ? 'error' : 'success',
-      result: parsed.result || {},
-      message: parsed.message,
-      metadata: parsed.metadata,
-    }
-  }
-
-  if ('status' in parsed) {
-    const { status, message, metadata, ...rest } = parsed
-    return {
-      status: status === 'error' ? 'error' : 'success',
-      result: Object.keys(rest).length > 0 ? rest : {},
-      message,
-      metadata,
-    }
-  }
-
-  if ('result' in parsed) {
-    const r = parsed.result
-    const msg = parsed.message
-      ?? (typeof r === 'string' ? r : null)
-      ?? (r && typeof r === 'object'
-          ? (r.text ?? r.message ?? r.response ?? r.answer ?? r.summary ?? r.content)
-          : null)
-    return {
-      status: 'success',
-      result: typeof r === 'string' ? { text: r } : (r || {}),
-      message: typeof msg === 'string' ? msg : undefined,
-      metadata: parsed.metadata,
-    }
-  }
-
-  if ('message' in parsed && typeof parsed.message === 'string') {
-    return {
-      status: 'success',
-      result: { text: parsed.message },
-      message: parsed.message,
-    }
-  }
-
-  if ('response' in parsed) {
-    return normalizeResponse(parsed.response)
+  if (!message || !agent_id) {
+    return { valid: false, error: 'message and agent_id are required' }
   }
 
   return {
-    status: 'success',
-    result: parsed,
-    message: undefined,
-    metadata: undefined,
+    valid: true,
+    input: {
+      message,
+      agent_id,
+      user_id,
+      assets,
+      metadata,
+    },
   }
 }
 
-/**
- * POST /api/agent
- *
- * Two modes, both POST:
- *   1. Submit:  body has { message, agent_id, ... }  → submits task, returns { task_id }
- *   2. Poll:    body has { task_id }                  → polls Lyzr, returns status/result
- */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
+    const validated = validatePayload(body)
 
-    if (AI_PROVIDER === 'lyzr') {
-      if (!LYZR_API_KEY) {
-        return NextResponse.json(
-          {
-            success: false,
-            response: { status: 'error', result: {}, message: 'LYZR_API_KEY not configured' },
-            error: 'LYZR_API_KEY not configured on server',
-          },
-          { status: 500 }
-        )
-      }
-
-      // ── Poll mode: body has task_id ──
-      if (body.task_id) {
-        return pollTask(body.task_id)
-      }
-
-      // ── Submit mode: body has message + agent_id ──
-      return submitTask(body)
-    }
-
-    if (AI_PROVIDER === 'openai_compatible') {
-      if (!LOCAL_LLM_BASE_URL || !LOCAL_LLM_MODEL) {
-        return NextResponse.json(
-          {
-            success: false,
-            response: {
-              status: 'error',
-              result: {},
-              message: 'LOCAL_LLM_BASE_URL and LOCAL_LLM_MODEL are required for openai_compatible provider',
-            },
-            error: 'Missing required local provider env vars: LOCAL_LLM_BASE_URL, LOCAL_LLM_MODEL',
-          },
-          { status: 500 }
-        )
-      }
-
-      if (body.task_id) {
-        return NextResponse.json(
-          {
-            success: false,
-            response: {
-              status: 'error',
-              result: {},
-              message: 'task_id polling is not supported for openai_compatible provider',
-            },
-            error: 'task_id polling is not supported for openai_compatible provider',
-          },
-          { status: 400 }
-        )
-      }
-
-      return submitLocalCompletion(body)
-    }
-
-    return NextResponse.json(
-      {
-        success: false,
-        response: {
-          status: 'error',
-          result: {},
-          message: `Unsupported AI_PROVIDER "${AI_PROVIDER}". Use "lyzr" or "openai_compatible".`,
+    if (!validated.valid) {
+      return NextResponse.json(
+        {
+          success: false,
+          response: { status: 'error', result: {}, message: validated.error },
+          error: validated.error,
         },
-        error: `Unsupported AI_PROVIDER "${AI_PROVIDER}"`,
+        { status: validated.error.includes('task_id polling') ? 400 : 400 }
+      )
+    }
+
+    const schema = await loadResponseSchema(validated.input.agent_id)
+    const client = getAIProviderClient()
+    const providerResponse = await client.generateStructuredResponse(validated.input, schema)
+
+    return NextResponse.json({
+      success: true,
+      response: {
+        status: providerResponse.status,
+        result: providerResponse.result,
+        message: providerResponse.message,
       },
-      { status: 500 }
-    )
+      module_outputs: providerResponse.module_outputs,
+      timestamp: new Date().toISOString(),
+    })
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Server error'
     return NextResponse.json(
@@ -207,242 +85,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
-
-/**
- * Submit a sync completion request to OpenAI-compatible APIs
- */
-async function submitLocalCompletion(body: any) {
-  const { message, agent_id, user_id, session_id } = body
-
-  if (!message) {
-    return NextResponse.json(
-      {
-        success: false,
-        response: { status: 'error', result: {}, message: 'message is required' },
-        error: 'message is required',
-      },
-      { status: 400 }
-    )
-  }
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  }
-  if (LOCAL_LLM_API_KEY) {
-    headers.Authorization = `Bearer ${LOCAL_LLM_API_KEY}`
-  }
-
-  const completionRes = await fetch(`${LOCAL_LLM_BASE_URL.replace(/\/$/, '')}/v1/chat/completions`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      model: LOCAL_LLM_MODEL,
-      messages: [{ role: 'user', content: message }],
-    }),
-  })
-
-  const rawResponseText = await completionRes.text()
-
-  if (!completionRes.ok) {
-    let errorMsg = `Local completion failed with status ${completionRes.status}`
-    try {
-      const errorData = JSON.parse(rawResponseText)
-      errorMsg = errorData?.error?.message || errorData?.error || errorData?.message || errorMsg
-    } catch {}
-
-    return NextResponse.json(
-      {
-        success: false,
-        response: { status: 'error', result: {}, message: errorMsg },
-        error: errorMsg,
-        raw_response: rawResponseText,
-      },
-      { status: completionRes.status }
-    )
-  }
-
-  const completion = JSON.parse(rawResponseText)
-  const rawContent = completion?.choices?.[0]?.message?.content
-  const assistantText = Array.isArray(rawContent)
-    ? rawContent
-      .map((item: any) => (typeof item === 'string' ? item : item?.text || ''))
-      .join('')
-    : typeof rawContent === 'string'
-      ? rawContent
-      : ''
-
-  return NextResponse.json({
-    success: true,
-    status: 'completed',
-    response: {
-      status: 'success',
-      result: {
-        text: assistantText,
-        model: completion?.model,
-        usage: completion?.usage,
-        finish_reason: completion?.choices?.[0]?.finish_reason,
-      },
-      message: assistantText || undefined,
-    },
-    agent_id,
-    user_id,
-    session_id,
-    timestamp: new Date().toISOString(),
-    raw_response: rawResponseText,
-  })
-}
-
-/**
- * Submit a new async task to Lyzr
- */
-async function submitTask(body: any) {
-  const { message, agent_id, user_id, session_id, assets } = body
-
-  if (!message || !agent_id) {
-    return NextResponse.json(
-      {
-        success: false,
-        response: { status: 'error', result: {}, message: 'message and agent_id are required' },
-        error: 'message and agent_id are required',
-      },
-      { status: 400 }
-    )
-  }
-
-  const finalUserId = user_id || process.env.LYZR_USER_ID || process.env.NEXT_LYZR_USER_ID || `user-${generateUUID()}`
-  const finalSessionId = session_id || `${agent_id}-${generateUUID().substring(0, 12)}`
-
-  const payload: Record<string, any> = {
-    message,
-    agent_id,
-    user_id: finalUserId,
-    session_id: finalSessionId,
-  }
-
-  if (assets && assets.length > 0) {
-    payload.assets = assets
-  }
-
-  const submitRes = await fetch(LYZR_TASK_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': LYZR_API_KEY,
-    },
-    body: JSON.stringify(payload),
-  })
-
-  if (!submitRes.ok) {
-    const submitText = await submitRes.text()
-    let errorMsg = `Task submit failed with status ${submitRes.status}`
-    try {
-      const errorData = JSON.parse(submitText)
-      errorMsg = errorData?.detail || errorData?.error || errorData?.message || errorMsg
-    } catch {
-      try {
-        const errorData = parseLLMJson(submitText)
-        errorMsg = errorData?.error || errorData?.message || errorMsg
-      } catch {}
-    }
-    return NextResponse.json(
-      {
-        success: false,
-        response: { status: 'error', result: {}, message: errorMsg },
-        error: errorMsg,
-        raw_response: submitText,
-      },
-      { status: submitRes.status }
-    )
-  }
-
-  const { task_id } = await submitRes.json()
-
-  return NextResponse.json({
-    task_id,
-    agent_id,
-    user_id: finalUserId,
-    session_id: finalSessionId,
-  })
-}
-
-/**
- * Poll a task by ID — single request proxy with API key
- */
-async function pollTask(task_id: string) {
-  const pollRes = await fetch(`${LYZR_TASK_URL}/${task_id}`, {
-    headers: {
-      'accept': 'application/json',
-      'x-api-key': LYZR_API_KEY,
-    },
-  })
-
-  if (!pollRes.ok) {
-    const pollText = await pollRes.text()
-    const msg = pollRes.status === 404
-      ? 'Task expired or not found'
-      : `Poll failed with status ${pollRes.status}`
-    return NextResponse.json(
-      {
-        success: false,
-        status: 'failed',
-        error: msg,
-        raw_response: pollText,
-      },
-      { status: pollRes.status }
-    )
-  }
-
-  const task = await pollRes.json()
-
-  // Still processing
-  if (task.status === 'processing') {
-    return NextResponse.json({ status: 'processing' })
-  }
-
-  // Task failed
-  if (task.status === 'failed') {
-    return NextResponse.json(
-      {
-        success: false,
-        status: 'failed',
-        response: { status: 'error', result: {}, message: task.error || 'Agent task failed' },
-        error: task.error || 'Agent task failed',
-      },
-      { status: 500 }
-    )
-  }
-
-  // Task completed — envelope extraction + parseLLMJson + normalizeResponse
-  const rawText = JSON.stringify(task.response)
-  let moduleOutputs: ModuleOutputs | undefined
-  let agentResponseRaw: any = rawText
-
-  try {
-    const envelope = JSON.parse(rawText)
-    if (envelope && typeof envelope === 'object' && 'response' in envelope) {
-      moduleOutputs = envelope.module_outputs
-      agentResponseRaw = envelope.response
-    }
-  } catch {
-    // Not standard JSON envelope — parseLLMJson will handle it
-  }
-
-  const parsed = parseLLMJson(agentResponseRaw)
-
-  const toNormalize =
-    parsed && typeof parsed === 'object' && parsed.success === false && parsed.data === null
-      ? agentResponseRaw
-      : parsed
-
-  const normalized = normalizeResponse(toNormalize)
-
-  return NextResponse.json({
-    success: true,
-    status: 'completed',
-    response: normalized,
-    module_outputs: moduleOutputs,
-    timestamp: new Date().toISOString(),
-    raw_response: rawText,
-  })
 }
