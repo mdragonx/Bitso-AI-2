@@ -4,6 +4,8 @@ import path from 'path'
 
 import { getAIProviderClient } from '@/lib/ai/providerFactory'
 import type { AIRequestInput } from '@/lib/ai/types'
+import { analysisTriggerRequestSchema } from '@/lib/contracts/apiContracts'
+import { parseOrThrow } from '@/lib/validation/trading'
 
 const MARKET_ANALYSIS_COORDINATOR_AGENT_ID = '69c440a030aebe1ba52aede0'
 const TECHNICAL_ANALYSIS_AGENT_ID = '69c4408d967781c77f39ef10'
@@ -142,31 +144,12 @@ function validateAgainstSchema(
   return { valid: true }
 }
 
-function validatePayload(body: any): { valid: true; input: AIRequestInput } | { valid: false; error: string } {
-  if (!body || typeof body !== 'object') {
-    return { valid: false, error: 'Invalid request body' }
+function validatePayload(body: unknown): AIRequestInput {
+  if (body && typeof body === 'object' && 'task_id' in (body as Record<string, unknown>)) {
+    throw new Error('task_id polling is not supported for configured provider')
   }
 
-  if (body.task_id) {
-    return { valid: false, error: 'task_id polling is not supported for configured provider' }
-  }
-
-  const { message, agent_id, user_id, assets, metadata } = body
-
-  if (!message || !agent_id) {
-    return { valid: false, error: 'message and agent_id are required' }
-  }
-
-  return {
-    valid: true,
-    input: {
-      message,
-      agent_id,
-      user_id,
-      assets,
-      metadata,
-    },
-  }
+  return parseOrThrow(analysisTriggerRequestSchema, body)
 }
 
 function sanitizeForLogs(value: unknown): unknown {
@@ -291,28 +274,17 @@ Context: ${JSON.stringify(sharedContext)}`
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const validated = validatePayload(body)
+    const input = validatePayload(body)
 
-    if (!validated.valid) {
-      return NextResponse.json(
-        {
-          success: false,
-          response: { status: 'error', result: {}, message: validated.error },
-          error: validated.error,
-        },
-        { status: validated.error.includes('task_id polling') ? 400 : 400 }
-      )
-    }
-
-    const schema = await loadResponseSchema(validated.input.agent_id)
-    const providerResponse = validated.input.agent_id === MARKET_ANALYSIS_COORDINATOR_AGENT_ID
-      ? await runMarketCoordinatorFlow(validated.input)
-      : await getAIProviderClient().generateStructuredResponse(validated.input, schema)
+    const schema = await loadResponseSchema(input.agent_id)
+    const providerResponse = input.agent_id === MARKET_ANALYSIS_COORDINATOR_AGENT_ID
+      ? await runMarketCoordinatorFlow(input)
+      : await getAIProviderClient().generateStructuredResponse(input, schema)
 
     if (schema) {
       const validation = validateAgainstSchema(providerResponse.result, schema)
       if (!validation.valid) {
-        const errorMessage = `Response validation failed for agent_id=${validated.input.agent_id}: ${validation.errors.join(
+        const errorMessage = `Response validation failed for agent_id=${input.agent_id}: ${validation.errors.join(
           '; '
         )}`
         return NextResponse.json(
@@ -349,7 +321,7 @@ export async function POST(request: NextRequest) {
         response: { status: 'error', result: {}, message: errorMsg },
         error: errorMsg,
       },
-      { status: 500 }
+      { status: errorMsg.includes('Validation failed') || errorMsg.includes('task_id polling') ? 400 : 500 }
     )
   }
 }

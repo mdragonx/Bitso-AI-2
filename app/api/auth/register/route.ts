@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { applySessionCookie, createSessionToken, hashPassword } from '@/lib/auth';
 import { migrateAndSeedCollections } from '@/lib/seed';
 import { createUser, findUserByEmail } from '@/lib/repositories/userRepository';
-import { parseOrThrow, registerUserSchema } from '@/lib/validation/trading';
+import { parseOrThrow } from '@/lib/validation/trading';
+import { registerRequestSchema } from '@/lib/contracts/apiContracts';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { email, password, name } = parseOrThrow(registerUserSchema, body);
+    const { email, password, name } = parseOrThrow(registerRequestSchema, body);
 
     const exists = await findUserByEmail(email);
     if (exists) {
