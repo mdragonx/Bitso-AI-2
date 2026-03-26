@@ -32,6 +32,7 @@ function createRequest(url: string, method: string, body?: Record<string, unknow
 
 function createInMemoryTradeModel() {
   const trades: TradeRecord[] = [];
+  const statusTransitions: string[] = [];
 
   function toDoc(record: TradeRecord) {
     return {
@@ -41,6 +42,9 @@ function createInMemoryTradeModel() {
         if (index >= 0) {
           trades[index] = { ...trades[index], ...this };
           Object.assign(record, trades[index]);
+          if (typeof trades[index].status === 'string') {
+            statusTransitions.push(trades[index].status);
+          }
         }
         return this;
       },
@@ -49,6 +53,7 @@ function createInMemoryTradeModel() {
 
   return {
     trades,
+    statusTransitions,
     model: {
       async findOne(query: Record<string, any>) {
         const found = trades.find((trade) => {
@@ -227,7 +232,7 @@ test('analysis orchestration aggregates coordinator sub-agent outputs', async ()
 });
 
 test('execution service lifecycle persists transitions and idempotency replay', async () => {
-  const { trades, model } = createInMemoryTradeModel();
+  const { trades, model, statusTransitions } = createInMemoryTradeModel();
   runtimeConfig.tradingMode = 'paper';
 
   __setExecutionServiceTestDependencies({
@@ -256,11 +261,12 @@ test('execution service lifecycle persists transitions and idempotency replay', 
 
   assert.equal(replay.idempotent_replay, true);
   assert.equal(trades.length, 1);
+  assert.deepEqual(statusTransitions, ['submitted', 'filled']);
   assert.deepEqual(trades.map((trade) => trade.status), ['filled']);
 });
 
 test('execution service marks failed when exchange submission fails in live mode', async () => {
-  const { trades, model } = createInMemoryTradeModel();
+  const { trades, model, statusTransitions } = createInMemoryTradeModel();
   runtimeConfig.tradingMode = 'live';
 
   __setExecutionServiceTestDependencies({
@@ -280,6 +286,7 @@ test('execution service marks failed when exchange submission fails in live mode
   });
 
   assert.equal(result.success, false);
+  assert.deepEqual(statusTransitions, ['submitted', 'failed']);
   assert.equal(trades[0].status, 'failed');
   assert.equal(trades[0].result_status, 'failed');
 });
@@ -353,6 +360,52 @@ test('risk-rule enforcement persists rejected trades and order endpoint idempote
   assert.equal(replayResponse.status, 200);
   const replayPayload = await replayResponse.json();
   assert.equal(replayPayload.data.idempotent_replay, true);
+});
+
+
+
+test('execution service persists risk-rule rejections as rejected trades', async () => {
+  const rejectedPayloads: Record<string, any>[] = [];
+
+  __setExecutionServiceTestDependencies({
+    migratePlaintextBitsoSecrets: async () => undefined,
+    getBitsoCredentialModel: async () => ({ findOne: async () => ({ encrypted_api_key: 'x' }) } as any),
+    decryptBitsoCredentialPair: () => ({ apiKey: 'k', apiSecret: 's' }),
+    getTradeModel: async () => ({
+      findOne: async () => null,
+      create: async () => ({
+        async save() {
+          return this;
+        },
+      }),
+    } as any),
+    validateExecutionRiskRules: async () => ({
+      ok: false,
+      code: 'MAX_DAILY_NOTIONAL_EXCEEDED',
+      message: 'daily cap reached',
+      details: { max_daily_notional: 1000 },
+    } as any),
+    persistRejectedTradeAttempt: async (payload: Record<string, any>) => {
+      rejectedPayloads.push(payload);
+      return {
+        status: 'rejected',
+        result_status: 'rejected',
+        risk_check_details: payload.violationMessage,
+      } as any;
+    },
+  });
+
+  const result = await executeApprovedRecommendation('owner-risk-1', {
+    recommendation: { pair: 'btc_mxn', signal: 'BUY', status: 'approved', recommended_entry_price: '100' },
+    execution: { amount_minor: '500', type: 'market' },
+    idempotency_key: 'idem-risk-1',
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.risk_violation_code, 'MAX_DAILY_NOTIONAL_EXCEEDED');
+  assert.equal(rejectedPayloads.length, 1);
+  assert.equal(rejectedPayloads[0].idempotencyKey, 'idem-risk-1');
+  assert.equal(result.trade?.status, 'rejected');
 });
 
 test('execution endpoint propagates risk rejection response payload', async () => {
