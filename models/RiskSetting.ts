@@ -1,18 +1,20 @@
-import { initDB, createModel } from 'lyzr-architect';
+import { model, models, Schema } from 'mongoose';
+import connectToDatabase from '@/lib/mongodb';
 
-let _model: any = null;
+const RiskSettingSchema = new Schema(
+  {
+    max_trade_amount: { type: Number, default: 1000 },
+    daily_limit: { type: Number, default: 5000 },
+    stop_loss_pct: { type: Number, default: 5 },
+    allowed_pairs: { type: String, default: 'BTC/MXN,ETH/MXN,XRP/MXN,LTC/MXN' },
+    behavioral_position: { type: String, default: 'moderate' },
+    fee_tier: { type: String, default: 'starter' },
+    owner_user_id: { type: String, default: '' },
+  },
+  { timestamps: true }
+);
 
 export default async function getRiskSettingModel() {
-  if (!_model) {
-    await initDB();
-    _model = createModel('RiskSetting', {
-      max_trade_amount: { type: Number, default: 1000 },
-      daily_limit: { type: Number, default: 5000 },
-      stop_loss_pct: { type: Number, default: 5 },
-      allowed_pairs: { type: String, default: 'BTC/MXN,ETH/MXN,XRP/MXN,LTC/MXN' },
-      behavioral_position: { type: String, default: 'moderate' },
-      fee_tier: { type: String, default: 'starter' },
-    });
-  }
-  return _model;
+  await connectToDatabase();
+  return models.RiskSetting || model('RiskSetting', RiskSettingSchema);
 }

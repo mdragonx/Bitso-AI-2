@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { AuthProvider, ProtectedRoute, LoginForm, RegisterForm, UserMenu } from 'lyzr-architect/client';
 import { callAIAgent } from '@/lib/aiAgent';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -34,6 +33,15 @@ const THEME_VARS = {
   '--radius': '0rem',
 } as React.CSSProperties;
 
+const FEE_TIER_MAP: Record<string, { maker: number; taker: number }> = {
+  starter: { maker: 0.005, taker: 0.0065 },
+  tier1: { maker: 0.004, taker: 0.005 },
+  tier2: { maker: 0.003, taker: 0.004 },
+  tier3: { maker: 0.002, taker: 0.003 },
+  tier4: { maker: 0.001, taker: 0.002 },
+  tier5: { maker: 0.0005, taker: 0.001 },
+};
+
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { hasError: boolean; error: string }
@@ -59,6 +67,120 @@ class ErrorBoundary extends React.Component<
     }
     return this.props.children;
   }
+}
+
+function AuthProvider({ children }: { children: React.ReactNode }) {
+  return <>{children}</>;
+}
+
+function LoginForm({ onSwitchToRegister }: { onSwitchToRegister: () => void }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        setError(json.error || 'Login failed');
+        return;
+      }
+      window.location.reload();
+    } catch {
+      setError('Login failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-3">
+      <input className="w-full rounded border border-border bg-background px-3 py-2 text-sm" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+      <input className="w-full rounded border border-border bg-background px-3 py-2 text-sm" placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      <button disabled={loading} className="w-full rounded bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-60">{loading ? 'Signing in...' : 'Sign in'}</button>
+      <button type="button" onClick={onSwitchToRegister} className="w-full text-xs text-muted-foreground underline">Create account</button>
+    </form>
+  );
+}
+
+function RegisterForm({ onSwitchToLogin }: { onSwitchToLogin: () => void }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, name }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        setError(json.error || 'Register failed');
+        return;
+      }
+      window.location.reload();
+    } catch {
+      setError('Register failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-3">
+      <input className="w-full rounded border border-border bg-background px-3 py-2 text-sm" placeholder="Name (optional)" value={name} onChange={(e) => setName(e.target.value)} />
+      <input className="w-full rounded border border-border bg-background px-3 py-2 text-sm" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+      <input className="w-full rounded border border-border bg-background px-3 py-2 text-sm" placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      <button disabled={loading} className="w-full rounded bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-60">{loading ? 'Creating...' : 'Create account'}</button>
+      <button type="button" onClick={onSwitchToLogin} className="w-full text-xs text-muted-foreground underline">Back to login</button>
+    </form>
+  );
+}
+
+function UserMenu() {
+  const [loading, setLoading] = useState(false);
+  const onLogout = async () => {
+    setLoading(true);
+    await fetch('/api/auth/logout', { method: 'POST' });
+    window.location.reload();
+  };
+
+  return <button onClick={onLogout} disabled={loading} className="text-xs text-muted-foreground underline">{loading ? 'Signing out...' : 'Sign out'}</button>;
+}
+
+function ProtectedRoute({ unauthenticatedFallback, children }: { unauthenticatedFallback: React.ReactNode; children: React.ReactNode }) {
+  const [loading, setLoading] = useState(true);
+  const [authenticated, setAuthenticated] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/auth/me', { cache: 'no-store' })
+      .then((res) => {
+        setAuthenticated(res.ok);
+      })
+      .catch(() => setAuthenticated(false))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return null;
+  return authenticated ? <>{children}</> : <>{unauthenticatedFallback}</>;
 }
 
 function AuthScreen() {
@@ -128,15 +250,6 @@ export default function Page() {
   const [hasApiKeys, setHasApiKeys] = useState(false);
   const [behavioralPosition, setBehavioralPosition] = useState('moderate');
   const [feeTier, setFeeTier] = useState({ maker: 0.005, taker: 0.0065 });
-
-  const FEE_TIER_MAP: Record<string, { maker: number; taker: number }> = {
-    starter: { maker: 0.005, taker: 0.0065 },
-    tier1: { maker: 0.004, taker: 0.005 },
-    tier2: { maker: 0.003, taker: 0.004 },
-    tier3: { maker: 0.002, taker: 0.003 },
-    tier4: { maker: 0.001, taker: 0.002 },
-    tier5: { maker: 0.0005, taker: 0.001 },
-  };
 
   const fetchSignals = useCallback(async () => {
     try {

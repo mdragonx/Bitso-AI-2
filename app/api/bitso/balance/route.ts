@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authMiddleware } from 'lyzr-architect';
+import { getCurrentUserId, withAuth } from '@/lib/auth';
 import getBitsoCredentialModel from '@/models/BitsoCredential';
 import crypto from 'crypto';
 
@@ -13,7 +13,7 @@ function createBitsoAuthHeader(apiKey: string, apiSecret: string, method: string
 async function handler(req: NextRequest) {
   try {
     const Model = await getBitsoCredentialModel();
-    const creds = await Model.find({});
+    const creds = await Model.find({ owner_user_id: getCurrentUserId(req) });
 
     if (!Array.isArray(creds) || creds.length === 0) {
       return NextResponse.json({ success: false, error: 'No Bitso API credentials configured. Go to API Settings to add your keys.' }, { status: 400 });
@@ -50,5 +50,5 @@ async function handler(req: NextRequest) {
   }
 }
 
-const protectedHandler = authMiddleware(handler);
+const protectedHandler = withAuth(handler);
 export const GET = protectedHandler;

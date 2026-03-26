@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authMiddleware } from 'lyzr-architect';
+import { getCurrentUserId, withAuth } from '@/lib/auth';
 import getBitsoCredentialModel from '@/models/BitsoCredential';
 import crypto from 'crypto';
 
@@ -24,7 +24,7 @@ async function handler(req: NextRequest) {
   try {
     // Try to fetch real fees from Bitso if credentials exist
     const Model = await getBitsoCredentialModel();
-    const creds = await Model.find({});
+    const creds = await Model.find({ owner_user_id: getCurrentUserId(req) });
 
     if (Array.isArray(creds) && creds.length > 0) {
       const apiKey = creds[0].api_key;
@@ -66,5 +66,5 @@ async function handler(req: NextRequest) {
   }
 }
 
-const protectedHandler = authMiddleware(handler);
+const protectedHandler = withAuth(handler);
 export const GET = protectedHandler;
