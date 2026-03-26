@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { BarChart3, History, Shield, Activity, Key, Target } from 'lucide-react';
+import { BarChart3, History, Shield, Key, CalendarClock } from 'lucide-react';
 
 interface SidebarProps {
   activeScreen: string;
@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { id: 'history', label: 'Trade History', icon: History },
   { id: 'risk', label: 'Risk Settings', icon: Shield },
   { id: 'api-settings', label: 'API Settings', icon: Key },
+  { id: 'scheduler', label: 'Scheduler', icon: CalendarClock },
 ];
 
 const AGENTS = [
