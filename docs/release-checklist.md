@@ -18,7 +18,7 @@ If any required sign-off is missing, stale, or lacks evidence links, the release
 | Area | Responsible owner | Required evidence | Sign-off |
 |---|---|---|---|
 | Traceability completeness | Engineering Lead | `docs/traceability.md` shows no `partial`/`missing` rows and every row has an automated test reference | **Owner:** Engineering Lead (acting) <br> **UTC:** 2026-03-26T05:53:21Z <br> **Evidence:** [`docs/traceability.md` current matrix + release decision](./traceability.md) <br> **Decision:** `Rejected / Blocked` (matrix still contains `partial` rows and explicit blockers). |
-| Critical tests | QA Lead | CI/test run artifacts for release commit SHA with pass status | **Owner:** QA Lead (acting) <br> **UTC:** 2026-03-26T05:53:21Z <br> **Evidence:** Local attempt to run `npm run test:contracts && npm run test:validation && npm run test:integration` failed before test execution because dependencies could not be installed (`npm install` failed with `403 Forbidden` from registry). <br> **Decision:** `Rejected / Blocked` (no validated passing critical-test artifact for this commit). |
+| Critical tests | QA Lead | CI/test run artifacts for release commit SHA with pass status, including `npm run test:release-gate` (integration/e2e auth + coordinator + execution transitions + risk rejections + idempotency replay) | **Owner:** QA Lead (acting) <br> **UTC:** 2026-03-26T05:53:21Z <br> **Evidence:** Local attempt to run `npm run test:contracts && npm run test:validation && npm run test:integration` failed before test execution because dependencies could not be installed (`npm install` failed with `403 Forbidden` from registry). <br> **Decision:** `Rejected / Blocked` (no validated passing critical-test artifact for this commit). |
 | Security readiness | Security Owner | Security scan/report + resolution or approved risk acceptance for each critical finding | **Owner:** Security Owner (acting) <br> **UTC:** 2026-03-26T05:53:21Z <br> **Evidence:** No current security scan/report artifact was provided in-repo or linked in this checklist update. <br> **Decision:** `Rejected / Blocked`. |
 | End-to-end demo evidence | Product + Engineering | Current release build demo recordings mapped to in-scope journeys | **Owner:** Product + Engineering (acting) <br> **UTC:** 2026-03-26T05:53:21Z <br> **Evidence:** No release-candidate demo recording links provided in-repo for this update. <br> **Decision:** `Rejected / Blocked`. |
 | Known limitations transparency | Product Owner | Published release notes with impact + workaround + explicit owner review | **Owner:** Product Owner (acting) <br> **UTC:** 2026-03-26T05:53:21Z <br> **Evidence:** No release notes artifact linked in this repository update to satisfy the checklist requirement. <br> **Decision:** `Rejected / Blocked`. |
@@ -30,7 +30,7 @@ Release is automatically **BLOCKED** if **any** condition below is true:
 1. Any row in `docs/traceability.md` is `partial` or `missing`.
 2. Any traceability row lacks a real automated test reference.
 3. Any required owner sign-off above is unchecked or missing evidence links.
-4. Critical tests are failing or were not run for the release commit.
+4. Critical tests are failing or were not run for the release commit. Required command: `npm run test:release-gate`.
 5. Critical security findings are unresolved without formal approved acceptance.
 
 ## Objective "Done" Criteria
@@ -44,6 +44,7 @@ A release is objectively **Done** only when all conditions below are true:
 
 2. **Critical quality gate**
    - Full critical suite passes for the release commit SHA.
+   - Release gate suite command `npm run test:release-gate` must pass.
    - No open critical-severity defects in release scope.
 
 3. **Security readiness**
