@@ -206,15 +206,21 @@ function AuthScreen({ message }: { message?: string }) {
 
 interface AnalysisResult {
   signal?: string;
-  confidence?: number;
+  confidence?: number | { score?: number; explanation?: string };
+  confidence_explanation?: string;
   technical_summary?: string;
   market_summary?: string;
+  indicator_summary?: {
+    technical_analysis?: string;
+    market_research?: string;
+  };
   risk_assessment?: string;
   recommended_entry_price?: string;
   recommended_exit_price?: string;
   stop_loss_price?: string;
   position_size_suggestion?: string;
   reasoning?: string;
+  reasoning_trace?: string;
 }
 
 interface TradeResult {
@@ -256,6 +262,12 @@ interface MarketContextPayload {
 }
 
 export default function Page() {
+  const getConfidenceScore = (confidence: AnalysisResult['confidence']): number => {
+    if (typeof confidence === 'number') return confidence;
+    if (confidence && typeof confidence === 'object' && typeof confidence.score === 'number') return confidence.score;
+    return 0;
+  };
+
   const [activeScreen, setActiveScreen] = useState('dashboard');
   const [selectedPair, setSelectedPair] = useState('btc_mxn');
   const [showSample, setShowSample] = useState(false);
@@ -367,6 +379,7 @@ export default function Page() {
       // Fetch market context and OHLC in parallel before analysis
       let ohlcContext = '';
       let marketContextPayload: MarketContextPayload = {};
+      let candles: any[] = [];
 
       const [marketContextResult, ohlcResult] = await Promise.all([
         apiFetch('/api/market-context', { cache: 'no-store' })
@@ -384,7 +397,7 @@ export default function Page() {
       }
 
       if (ohlcResult?.success && ohlcResult?.data) {
-        const candles = Array.isArray(ohlcResult.data) ? ohlcResult.data.slice(-50) : [];
+        candles = Array.isArray(ohlcResult.data) ? ohlcResult.data.slice(-50) : [];
         ohlcContext = `
 
 Here is the latest OHLC data (last 50 1-hour candles) from the Bitso exchange:
@@ -417,7 +430,15 @@ Approved market context sources were unavailable for this run.`;
 
       const result = await callAIAgent(
         `${behaviorInstruction}\n\nAnalyze the current market conditions for ${pairLabel}. Provide a buy/sell/hold recommendation with confidence score, technical analysis summary, market research summary, risk assessment, recommended entry price, exit price, stop-loss price, and position size suggestion. Explicitly incorporate the provided market-context sources in your market summary and reasoning sections.${ohlcContext}${marketContextPrompt}`,
-        MARKET_ANALYSIS_AGENT
+        MARKET_ANALYSIS_AGENT,
+        {
+          metadata: {
+            selected_pair: selectedPair,
+            timeframe: '1hour',
+            ohlc: candles,
+            market_context_items: contextItems,
+          },
+        }
       );
 
       if (result.success) {
@@ -431,8 +452,11 @@ Approved market context sources were unavailable for this run.`;
           body: JSON.stringify({
             pair: selectedPair,
             signal_type: (data.signal ?? 'HOLD').toUpperCase(),
-            confidence: data.confidence ?? 0,
-            indicators: { technical_summary: data.technical_summary, market_summary: data.market_summary },
+            confidence: getConfidenceScore(data.confidence),
+            indicators: {
+              technical_summary: data.technical_summary ?? data.indicator_summary?.technical_analysis,
+              market_summary: data.market_summary ?? data.indicator_summary?.market_research,
+            },
             market_context: {
               generated_at: marketContextPayload.generated_at ?? new Date().toISOString(),
               summary: data.market_summary ?? '',
@@ -447,7 +471,7 @@ Approved market context sources were unavailable for this run.`;
               })),
             },
             risk_assessment: data.risk_assessment ?? '',
-            reasoning: data.reasoning ?? '',
+            reasoning: data.reasoning_trace ?? data.reasoning ?? '',
             recommended_entry_price: data.recommended_entry_price ?? '',
             recommended_exit_price: data.recommended_exit_price ?? '',
             stop_loss_price: data.stop_loss_price ?? '',

@@ -1,32 +1,55 @@
 {
   "agent_name": "Market Analysis Coordinator",
   "agent_id": "69c440a030aebe1ba52aede0",
-  "description": "Coordinates technical analysis and market research sub-agents, aggregates results into a unified buy/sell/hold recommendation with confidence score and risk context",
+  "description": "Coordinates technical analysis and market research sub-agents, aggregates results into a unified recommendation payload",
   "agent_type": "json",
   "accessor": "result",
   "auto_generated": true,
   "response_schema": {
-    "signal": "string",
-    "confidence": "number",
-    "technical_summary": "string",
-    "market_summary": "string",
-    "risk_assessment": "string",
-    "recommended_entry_price": "string",
-    "recommended_exit_price": "string",
-    "stop_loss_price": "string",
-    "position_size_suggestion": "string",
-    "reasoning": "string"
+    "type": "object",
+    "properties": {
+      "signal": {
+        "type": "string"
+      },
+      "confidence": {
+        "type": "object",
+        "properties": {
+          "score": { "type": "number" },
+          "explanation": { "type": "string" }
+        },
+        "required": ["score", "explanation"],
+        "additionalProperties": false
+      },
+      "risk_assessment": {
+        "type": "string"
+      },
+      "indicator_summary": {
+        "type": "object",
+        "properties": {
+          "technical_analysis": { "type": "string" },
+          "market_research": { "type": "string" }
+        },
+        "required": ["technical_analysis", "market_research"],
+        "additionalProperties": false
+      },
+      "reasoning_trace": {
+        "type": "string"
+      }
+    },
+    "required": ["signal", "confidence", "risk_assessment", "indicator_summary", "reasoning_trace"],
+    "additionalProperties": true
   },
   "example_response": {
-    "signal": "BUY, SELL, or HOLD",
-    "confidence": 0,
-    "technical_summary": "Summary of technical analysis",
-    "market_summary": "Summary of market research",
-    "risk_assessment": "Risk assessment combining technical and fundamental",
-    "recommended_entry_price": "Suggested entry price",
-    "recommended_exit_price": "Suggested exit/target price",
-    "stop_loss_price": "Suggested stop-loss price",
-    "position_size_suggestion": "Suggested position size based on confidence",
-    "reasoning": "Detailed reasoning for the recommendation"
+    "signal": "BUY",
+    "confidence": {
+      "score": 73,
+      "explanation": "Confidence derived from averaged technical and market sub-agent scores."
+    },
+    "risk_assessment": "Technical and macro risks are balanced; treat as moderate risk.",
+    "indicator_summary": {
+      "technical_analysis": "Momentum is improving with trend support.",
+      "market_research": "Sentiment is constructive with mixed macro headlines."
+    },
+    "reasoning_trace": "Consensus generated from technical and market/sentiment sub-agent outputs."
   }
 }

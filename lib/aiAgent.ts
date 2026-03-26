@@ -87,7 +87,7 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 export async function callAIAgent(
   message: string,
   agent_id: string,
-  options?: { user_id?: string; session_id?: string; assets?: string[] }
+  options?: { user_id?: string; session_id?: string; assets?: string[]; metadata?: Record<string, unknown> }
 ): Promise<AIAgentResponse> {
   try {
     // 1. Submit task — returns { task_id, agent_id, user_id, session_id }
@@ -100,6 +100,7 @@ export async function callAIAgent(
         user_id: options?.user_id,
         session_id: options?.session_id,
         assets: options?.assets,
+        metadata: options?.metadata,
       }),
     })
 
@@ -264,7 +265,7 @@ export function useAIAgent() {
   const callAgent = async (
     message: string,
     agent_id: string,
-    options?: { user_id?: string; session_id?: string; assets?: string[] }
+    options?: { user_id?: string; session_id?: string; assets?: string[]; metadata?: Record<string, unknown> }
   ) => {
     setLoading(true)
     setError(null)
