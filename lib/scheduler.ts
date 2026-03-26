@@ -3,7 +3,7 @@
 /**
  * Scheduler Client Utility
  *
- * Client-side wrapper for managing Lyzr Schedules via the /api/scheduler proxy.
+ * Client-side wrapper for managing schedules via the /api/scheduler proxy.
  * All API calls are proxied through the server so the API key never reaches the browser.
  */
 
@@ -63,7 +63,7 @@ export interface Webhook {
 
 interface ApiResult<T = Record<string, unknown>> {
   success: boolean
-  provider?: 'lyzr' | 'local'
+  provider?: 'local'
   code?: string
   action?: string
   error?: string

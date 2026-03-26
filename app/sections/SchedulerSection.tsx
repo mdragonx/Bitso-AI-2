@@ -65,16 +65,16 @@ function mapSchedulerError(payload: SchedulerApiPayload | null, status: number):
     case 'SCHEDULE_ALREADY_INACTIVE':
       return 'The selected schedule is already in the requested state. Refresh to sync latest status.';
     case 'SCHEDULER_PROVIDER_ERROR':
-      return 'Scheduler provider is unavailable. Retry in a moment or switch provider configuration.';
+      return 'Scheduler service is unavailable. Retry in a moment and inspect internal scheduler workers.';
     case 'SCHEDULER_INTERNAL_ERROR':
       return 'Internal scheduler error. Inspect server logs and retry after the service stabilizes.';
     default:
-      return payload.error || 'Scheduler request failed. Please retry or check environment configuration.';
+      return payload.error || 'Scheduler request failed. Please retry or check internal scheduler configuration.';
   }
 }
 
 export default function SchedulerSection() {
-  const [provider, setProvider] = useState<'Lyzr' | 'Local' | 'Unknown'>('Unknown');
+  const [provider, setProvider] = useState<'Internal' | 'Unknown'>('Unknown');
   const [healthStatus, setHealthStatus] = useState<HealthStatus>('connected');
   const [schedules, setSchedules] = useState<SchedulerSchedule[]>([]);
   const [recentRuns, setRecentRuns] = useState<SchedulerExecution[]>([]);
@@ -87,13 +87,10 @@ export default function SchedulerSection() {
   const [retryingScheduleId, setRetryingScheduleId] = useState('');
 
   const providerNote = useMemo(() => {
-    if (provider === 'Local') {
-      return 'Local mode executes jobs internally on this app instance and does not require external scheduler API keys.';
+    if (provider === 'Internal') {
+      return 'Internal mode executes jobs on this app instance with local scheduler workers.';
     }
-    if (provider === 'Lyzr') {
-      return 'Lyzr mode executes through the hosted scheduler provider and depends on scheduler provider connectivity.';
-    }
-    return 'Provider has not been detected yet.';
+    return 'Scheduler provider has not been detected yet.';
   }, [provider]);
 
   const loadSchedulerState = useCallback(async (isRefresh = false) => {
@@ -116,7 +113,7 @@ export default function SchedulerSection() {
         return;
       }
 
-      setProvider(listJson.provider === 'lyzr' ? 'Lyzr' : listJson.provider === 'local' ? 'Local' : 'Unknown');
+      setProvider(listJson.provider === 'local' ? 'Internal' : 'Unknown');
       const loadedSchedules = Array.isArray(listJson.schedules) ? listJson.schedules : [];
       setSchedules(loadedSchedules);
 
@@ -153,7 +150,8 @@ export default function SchedulerSection() {
       }
 
       const hasRecentFailures = (Array.isArray(recentJson.executions) ? recentJson.executions : []).some((run) => !run.success);
-      setHealthStatus(degraded ? 'degraded' : hasRecentFailures ? 'degraded' : 'connected');
+      const diagnosticsUnavailable = listJson.provider !== 'local';
+      setHealthStatus(diagnosticsUnavailable ? 'error' : degraded ? 'degraded' : hasRecentFailures ? 'degraded' : 'connected');
     } catch {
       setHealthStatus('error');
       setErrorMessage('Could not connect to scheduler endpoints. Confirm scheduler API routes are available.');

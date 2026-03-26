@@ -153,11 +153,7 @@ function policyViolation(code: string, message: string, status = 422) {
 }
 
 function activeProviderName() {
-  const resolved = resolveSchedulerProviderName()
-  if (resolved === 'lyzr' && !process.env.LYZR_API_KEY) {
-    return 'local' as const
-  }
-  return resolved
+  return resolveSchedulerProviderName()
 }
 
 function normalizeProviderError(action: string, result: SchedulerProviderResult<unknown>) {
