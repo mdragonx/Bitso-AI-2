@@ -11,6 +11,9 @@ const RiskSettingSchema = new Schema(
     allowed_pairs_list: { type: [String], default: ['BTC/MXN', 'ETH/MXN', 'XRP/MXN', 'LTC/MXN'] },
     behavioral_position: { type: String, default: 'moderate' },
     fee_tier: { type: String, default: 'starter' },
+    cooldown_minutes: { type: Number, default: 0 },
+    throttle_max_attempts: { type: Number, default: 0 },
+    throttle_window_minutes: { type: Number, default: 1 },
     owner_user_id: { type: String, default: '' },
   },
   {
