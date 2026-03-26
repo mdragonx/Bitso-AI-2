@@ -17,7 +17,10 @@ const TradeSignalSchema = new Schema(
     status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
     owner_user_id: { type: String, default: '' },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    collection: 'trade_signals',
+  }
 );
 
 export default async function getTradeSignalModel() {

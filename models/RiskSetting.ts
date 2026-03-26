@@ -11,7 +11,10 @@ const RiskSettingSchema = new Schema(
     fee_tier: { type: String, default: 'starter' },
     owner_user_id: { type: String, default: '' },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    collection: 'risk_settings',
+  }
 );
 
 export default async function getRiskSettingModel() {
