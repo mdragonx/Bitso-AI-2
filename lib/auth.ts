@@ -1,8 +1,8 @@
 import { createHmac } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
-import { recordAuthAnomaly } from '@/lib/observability/lifecycle';
-import { resolveAuthSecret } from '@/lib/config/runtime';
-import { hashPassword, verifyPassword } from '@/lib/passwordHash.mjs';
+import { recordAuthAnomaly } from './observability/lifecycle';
+import { resolveAuthSecret } from './config/runtime';
+import { hashPassword, verifyPassword } from './passwordHash.mjs';
 
 export { hashPassword, verifyPassword };
 

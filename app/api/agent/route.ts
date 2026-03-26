@@ -2,16 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { readFile } from 'fs/promises'
 import path from 'path'
 
-import { getAIProviderClient } from '@/lib/ai/providerFactory'
-import type { AIRequestInput } from '@/lib/ai/types'
-import { analysisTriggerRequestSchema } from '@/lib/contracts/apiContracts'
-import { getCurrentUserId, withAuth } from '@/lib/auth'
+import { getAIProviderClient } from '../../../lib/ai/providerFactory'
+import type { AIRequestInput } from '../../../lib/ai/types'
+import { analysisTriggerRequestSchema } from '../../../lib/contracts/apiContracts'
+import { getCurrentUserId, withAuth } from '../../../lib/auth'
 import {
   getCorrelationContextFromRequest,
   recordAnalysisMetric,
   withLifecycleLog,
-} from '@/lib/observability/lifecycle'
-import { parseOrThrow } from '@/lib/validation/trading'
+} from '../../../lib/observability/lifecycle'
+import { parseOrThrow } from '../../../lib/validation/trading'
 
 const agentRouteDependencies = {
   getAIProviderClient,
@@ -336,8 +336,9 @@ async function postHandler(request: NextRequest) {
 
     if (schema) {
       const validation = validateAgainstSchema(providerResponse.result, schema)
+      const validationErrors = validation.valid ? [] : validation.errors
       if (!validation.valid) {
-        const errorMessage = `Response validation failed for agent_id=${providerInput.agent_id}: ${validation.errors.join(
+        const errorMessage = `Response validation failed for agent_id=${providerInput.agent_id}: ${validationErrors.join(
           '; '
         )}`
         const latencyMs = Date.now() - startedAt
@@ -345,7 +346,7 @@ async function postHandler(request: NextRequest) {
         withLifecycleLog('warn', 'analysis_response_schema_validation_failed', {
           ...baseLogContext,
           latency_ms: latencyMs,
-          validation_errors: validation.errors,
+          validation_errors: validationErrors,
         })
         const response = NextResponse.json(
           {
@@ -354,7 +355,7 @@ async function postHandler(request: NextRequest) {
             error: errorMessage,
             details: {
               parse_stage: 'schema_validation',
-              validation_errors: validation.errors,
+              validation_errors: validationErrors,
               expected_schema_keys: Object.keys((schema.properties as Record<string, unknown>) || {}),
             },
           },

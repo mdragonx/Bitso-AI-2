@@ -26,7 +26,11 @@
         "./*"
       ]
     },
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "baseUrl": ".",
+    "types": [
+      "node"
+    ]
   },
   "include": [
     "next-env.d.ts",

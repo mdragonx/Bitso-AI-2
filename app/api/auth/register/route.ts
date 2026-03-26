@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { applySessionCookie, createSessionToken, hashPassword } from '@/lib/auth';
-import { migrateAndSeedCollections } from '@/lib/seed';
-import { createUser, findUserByEmail } from '@/lib/repositories/userRepository';
-import { parseOrThrow } from '@/lib/validation/trading';
-import { registerRequestSchema } from '@/lib/contracts/apiContracts';
+import { applySessionCookie, createSessionToken, hashPassword } from '../../../../lib/auth';
+import { migrateAndSeedCollections } from '../../../../lib/seed';
+import { createUser, findUserByEmail } from '../../../../lib/repositories/userRepository';
+import { parseOrThrow } from '../../../../lib/validation/trading';
+import { registerRequestSchema } from '../../../../lib/contracts/apiContracts';
 
 const registerRouteDependencies = {
   findUserByEmail,

@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentUserId, withAuth } from '@/lib/auth';
-import { tradeExecutionRequestSchema } from '@/lib/contracts/apiContracts';
+import { getCurrentUserId, withAuth } from '../../../lib/auth';
+import { tradeExecutionRequestSchema } from '../../../lib/contracts/apiContracts';
 import {
   getCorrelationContextFromRequest,
   recordExecutionMetric,
   withLifecycleLog,
-} from '@/lib/observability/lifecycle';
-import { parseOrThrow } from '@/lib/validation/trading';
-import { executeApprovedRecommendation } from '@/lib/services/executionService';
+} from '../../../lib/observability/lifecycle';
+import { parseOrThrow } from '../../../lib/validation/trading';
+import { executeApprovedRecommendation } from '../../../lib/services/executionService';
 
 const executionDependencies = {
   executeApprovedRecommendation,
