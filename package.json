@@ -13,7 +13,8 @@
     "migrate:collections": "node scripts/migrate-canonical-collections.mjs",
     "migrate:bitso-credentials:dry-run": "node scripts/migrate-bitso-credentials.mjs --dry-run",
     "migrate:bitso-credentials": "node scripts/migrate-bitso-credentials.mjs",
-    "check:bitso-credentials-integrity": "node scripts/check-bitso-credentials-integrity.mjs"
+    "check:bitso-credentials-integrity": "node scripts/check-bitso-credentials-integrity.mjs",
+    "db:bootstrap": "rm -rf .tmp/db-bootstrap && tsc --pretty false --noEmit false --module nodenext --moduleResolution nodenext --target es2020 --outDir .tmp/db-bootstrap scripts/db/bootstrap.ts && node .tmp/db-bootstrap/scripts/db/bootstrap.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

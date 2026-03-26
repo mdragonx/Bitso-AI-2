@@ -1,5 +1,5 @@
 import { model, models, Schema } from 'mongoose';
-import connectToDatabase from '@/lib/mongodb';
+import connectToDatabase from '../lib/mongodb';
 
 const UserSchema = new Schema(
   {
