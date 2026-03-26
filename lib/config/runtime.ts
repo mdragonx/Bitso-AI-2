@@ -36,6 +36,15 @@ function resolveTradingMode(stage: AppStage): TradingMode {
   return stage === 'prod' ? 'live' : 'paper';
 }
 
+export function resolveAuthSecret(): string {
+  const secret = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET;
+  if (!secret) {
+    throw new Error('Runtime configuration is invalid. Missing/invalid: AUTH_SECRET (or NEXTAUTH_SECRET)');
+  }
+
+  return secret;
+}
+
 const stage = resolveAppStage();
 
 export const runtimeConfig = {
@@ -55,7 +64,9 @@ export function validateRuntimeConfigAtStartup() {
     problems.push('MONGODB_URI (or MONGO_URL)');
   }
 
-  if (!process.env.AUTH_SECRET && !process.env.NEXTAUTH_SECRET) {
+  try {
+    resolveAuthSecret();
+  } catch {
     problems.push('AUTH_SECRET (or NEXTAUTH_SECRET)');
   }
 

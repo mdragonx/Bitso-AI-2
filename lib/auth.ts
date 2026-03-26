@@ -1,13 +1,13 @@
 import { createHmac } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { recordAuthAnomaly } from '@/lib/observability/lifecycle';
+import { resolveAuthSecret } from '@/lib/config/runtime';
 import { hashPassword, verifyPassword } from '@/lib/passwordHash.mjs';
 
 export { hashPassword, verifyPassword };
 
 const AUTH_COOKIE_NAME = 'bitso_session';
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
-const SECRET = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || 'dev-secret-change-me';
 
 interface SessionPayload {
   userId: string;
@@ -35,7 +35,7 @@ function base64UrlDecode(input: string) {
 }
 
 function sign(data: string) {
-  return createHmac('sha256', SECRET).update(data).digest('hex');
+  return createHmac('sha256', resolveAuthSecret()).update(data).digest('hex');
 }
 
 export function createSessionToken(userId: string, email: string) {
@@ -98,7 +98,25 @@ export function getCurrentUserId(req: NextRequest) {
 
 export function withAuth(handler: (req: NextRequest) => Promise<NextResponse>) {
   return async (req: NextRequest) => {
-    const validation = getSessionValidationFromRequest(req);
+    let validation: SessionValidationResult;
+
+    try {
+      validation = getSessionValidationFromRequest(req);
+    } catch {
+      recordAuthAnomaly({
+        reason: 'AUTH_SECRET_MISSING',
+        correlationId: req.headers.get('x-correlation-id') || undefined,
+      });
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Authentication is temporarily unavailable due to server configuration.',
+          error_code: 'AUTH_CONFIGURATION_ERROR',
+        },
+        { status: 500 }
+      );
+    }
+
     if (!validation.session) {
       recordAuthAnomaly({ reason: validation.errorCode, correlationId: req.headers.get('x-correlation-id') || undefined });
       return NextResponse.json(
