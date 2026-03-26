@@ -11,6 +11,7 @@ import RiskSettingsSection from './sections/RiskSettingsSection';
 import ApiSettingsSection from './sections/ApiSettingsSection';
 import SchedulerSection from './sections/SchedulerSection';
 import { clientFeatureFlags } from '@/lib/featureFlags';
+import { AUTH_EVENT, apiFetch, apiFetchJson } from '@/lib/apiClient';
 
 const MARKET_ANALYSIS_AGENT = '69c440a030aebe1ba52aede0';
 
@@ -171,9 +172,9 @@ function ProtectedRoute({ unauthenticatedFallback, children }: { unauthenticated
   const [authenticated, setAuthenticated] = useState(false);
 
   useEffect(() => {
-    fetch('/api/auth/me', { cache: 'no-store' })
-      .then((res) => {
-        setAuthenticated(res.ok);
+    apiFetch('/api/auth/me', { cache: 'no-store' })
+      .then(() => {
+        setAuthenticated(true);
       })
       .catch(() => setAuthenticated(false))
       .finally(() => setLoading(false));
@@ -183,7 +184,7 @@ function ProtectedRoute({ unauthenticatedFallback, children }: { unauthenticated
   return authenticated ? <>{children}</> : <>{unauthenticatedFallback}</>;
 }
 
-function AuthScreen() {
+function AuthScreen({ message }: { message?: string }) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   return (
     <div style={THEME_VARS} className="min-h-screen bg-background text-foreground flex items-center justify-center">
@@ -192,6 +193,7 @@ function AuthScreen() {
           <h1 className="font-serif text-3xl tracking-widest text-primary font-medium">BITSO</h1>
           <p className="text-xs text-muted-foreground tracking-wider mt-2">CRYPTO TRADING AGENT</p>
         </div>
+        {message ? <p className="mb-4 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">{message}</p> : null}
         {mode === 'login' ? (
           <LoginForm onSwitchToRegister={() => setMode('register')} />
         ) : (
@@ -258,6 +260,7 @@ export default function Page() {
   const [selectedPair, setSelectedPair] = useState('btc_mxn');
   const [showSample, setShowSample] = useState(false);
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
+  const [authMessage, setAuthMessage] = useState('');
 
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [tradeResult, setTradeResult] = useState<TradeResult | null>(null);
@@ -279,8 +282,7 @@ export default function Page() {
 
   const fetchSignals = useCallback(async () => {
     try {
-      const res = await fetch('/api/trade_signals');
-      const json = await res.json();
+      const json = await apiFetchJson<any>('/api/trade_signals');
       if (json.success && Array.isArray(json.data)) {
         setRecentSignals(json.data.slice(-5).reverse());
       }
@@ -289,8 +291,7 @@ export default function Page() {
 
   const fetchTrades = useCallback(async () => {
     try {
-      const res = await fetch('/api/trades');
-      const json = await res.json();
+      const json = await apiFetchJson<any>('/api/trades');
       if (json.success && Array.isArray(json.data)) {
         setTrades(json.data.reverse());
       }
@@ -299,8 +300,7 @@ export default function Page() {
 
   const loadRiskSettings = useCallback(async () => {
     try {
-      const res = await fetch('/api/risk_settings');
-      const json = await res.json();
+      const json = await apiFetchJson<any>('/api/risk_settings');
       if (json.success && Array.isArray(json.data) && json.data.length > 0) {
         const s = json.data[0];
         setBehavioralPosition(s.behavioral_position ?? 'moderate');
@@ -312,8 +312,7 @@ export default function Page() {
 
   const checkApiKeys = useCallback(async () => {
     try {
-      const res = await fetch('/api/bitso_credentials');
-      const json = await res.json();
+      const json = await apiFetchJson<any>('/api/bitso_credentials');
       const has = json.success && Array.isArray(json.data) && json.data.length > 0;
       setHasApiKeys(has);
       return has;
@@ -323,8 +322,7 @@ export default function Page() {
   const fetchBalances = useCallback(async () => {
     setBalanceLoading(true);
     try {
-      const res = await fetch('/api/bitso/balance');
-      const json = await res.json();
+      const json = await apiFetchJson<any>('/api/bitso/balance');
       if (json.success && Array.isArray(json.data?.balances)) {
         setBalances(json.data.balances);
       } else if (json.success && Array.isArray(json.data)) {
@@ -336,8 +334,7 @@ export default function Page() {
 
   const fetchTicker = useCallback(async (pair: string) => {
     try {
-      const res = await fetch(`/api/bitso/ticker?book=${pair}`);
-      const json = await res.json();
+      const json = await apiFetchJson<any>(`/api/bitso/ticker?book=${pair}`);
       if (json.success && json.data) {
         setTicker(json.data);
       }
@@ -372,11 +369,11 @@ export default function Page() {
       let marketContextPayload: MarketContextPayload = {};
 
       const [marketContextResult, ohlcResult] = await Promise.all([
-        fetch('/api/market-context', { cache: 'no-store' })
+        apiFetch('/api/market-context', { cache: 'no-store' })
           .then((res) => res.json())
           .catch(() => ({ success: false })),
         hasApiKeys
-          ? fetch(`/api/bitso/ohlc?book=${selectedPair}&timeframe=1hour`)
+          ? apiFetch(`/api/bitso/ohlc?book=${selectedPair}&timeframe=1hour`)
             .then((res) => res.json())
             .catch(() => ({ success: false }))
           : Promise.resolve({ success: false }),
@@ -428,7 +425,7 @@ Approved market context sources were unavailable for this run.`;
         const data: AnalysisResult = typeof parsed === 'string' ? (() => { try { return JSON.parse(parsed); } catch { return { reasoning: parsed }; } })() : parsed;
         setAnalysisResult(data);
 
-        await fetch('/api/trade_signals', {
+        await apiFetch('/api/trade_signals', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -480,7 +477,7 @@ Approved market context sources were unavailable for this run.`;
       const lastSignal = recentSignals[0];
       const idempotencyKey = `trade-${Date.now()}-${crypto.randomUUID()}`;
 
-      const orderRes = await fetch('/api/bitso/order', {
+      const orderRes = await apiFetch('/api/bitso/order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -513,14 +510,14 @@ Approved market context sources were unavailable for this run.`;
       const orderId = String(orderPayload.oid ?? orderPayload.order_id ?? '');
 
       if (lastSignal?._id) {
-        await fetch('/api/trade_signals', {
+        await apiFetch('/api/trade_signals', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: lastSignal._id, status: 'approved' }),
         });
       }
 
-      await fetch('/api/trades', {
+      await apiFetch('/api/trades', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -572,7 +569,7 @@ Approved market context sources were unavailable for this run.`;
   const handleRejectSignal = async () => {
     const lastSignal = recentSignals[0];
     if (lastSignal?._id) {
-      await fetch('/api/trade_signals', {
+      await apiFetch('/api/trade_signals', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: lastSignal._id, status: 'rejected' }),
@@ -590,6 +587,19 @@ Approved market context sources were unavailable for this run.`;
   ].filter(Boolean) as string[];
 
   useEffect(() => {
+    const handleAuthRequired = (event: Event) => {
+      const authEvent = event as CustomEvent<{ code?: string }>;
+      const code = authEvent.detail?.code;
+      setAuthMessage(code === 'SESSION_EXPIRED' ? 'Your session expired. Please sign in again.' : 'Please sign in to continue.');
+      setAnalysisResult(null);
+      setTradeResult(null);
+    };
+
+    window.addEventListener(AUTH_EVENT, handleAuthRequired as EventListener);
+    return () => window.removeEventListener(AUTH_EVENT, handleAuthRequired as EventListener);
+  }, []);
+
+  useEffect(() => {
     if (activeScreen === 'history') {
       setHistoryLoading(true);
       Promise.all([fetchSignals(), fetchTrades()]).finally(() => setHistoryLoading(false));
@@ -599,7 +609,7 @@ Approved market context sources were unavailable for this run.`;
   return (
     <AuthProvider>
       <ErrorBoundary>
-        <ProtectedRoute unauthenticatedFallback={<AuthScreen />}>
+        <ProtectedRoute unauthenticatedFallback={<AuthScreen message={authMessage} />}>
           <div style={THEME_VARS} className="min-h-screen bg-background text-foreground flex">
             <Sidebar activeScreen={activeScreen} onNavigate={setActiveScreen} activeAgentId={activeAgentId} hasApiKeys={hasApiKeys} behavioralPosition={behavioralPosition} />
 
