@@ -13,6 +13,18 @@ import {
 } from '@/lib/observability/lifecycle'
 import { parseOrThrow } from '@/lib/validation/trading'
 
+const agentRouteDependencies = {
+  getAIProviderClient,
+}
+
+export function __setAgentRouteTestDependencies(overrides: Partial<typeof agentRouteDependencies>) {
+  Object.assign(agentRouteDependencies, overrides)
+}
+
+export function __resetAgentRouteTestDependencies() {
+  agentRouteDependencies.getAIProviderClient = getAIProviderClient
+}
+
 const MARKET_ANALYSIS_COORDINATOR_AGENT_ID = '69c440a030aebe1ba52aede0'
 const TECHNICAL_ANALYSIS_AGENT_ID = '69c4408d967781c77f39ef10'
 const MARKET_RESEARCH_AGENT_ID = '69c4408daced56c171490320'
@@ -212,7 +224,7 @@ async function runMarketCoordinatorFlow(
     user_message: input.message,
   }
 
-  const client = getAIProviderClient()
+  const client = agentRouteDependencies.getAIProviderClient()
   const technicalPrompt = `You are the Technical Analysis Agent.
 Analyze only technicals from the provided OHLC data.
 Return JSON fields: signal (BUY/SELL/HOLD), confidence (0-100), summary, risk_assessment, reasoning.
@@ -323,7 +335,7 @@ async function postHandler(request: NextRequest) {
           requestId: correlation.requestId,
           userId,
         })
-      : await getAIProviderClient().generateStructuredResponse(providerInput, schema)
+      : await agentRouteDependencies.getAIProviderClient().generateStructuredResponse(providerInput, schema)
 
     if (schema) {
       const validation = validateAgainstSchema(providerResponse.result, schema)

@@ -4,6 +4,18 @@ import { findUserById } from '@/lib/repositories/userRepository';
 
 export const dynamic = 'force-dynamic';
 
+const meRouteDependencies = {
+  findUserById,
+};
+
+export function __setMeRouteTestDependencies(overrides: Partial<typeof meRouteDependencies>) {
+  Object.assign(meRouteDependencies, overrides);
+}
+
+export function __resetMeRouteTestDependencies() {
+  meRouteDependencies.findUserById = findUserById;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const validation = getSessionValidationFromRequest(req);
@@ -20,7 +32,7 @@ export async function GET(req: NextRequest) {
 
     const session = validation.session;
 
-    const user = await findUserById(session.userId);
+    const user = await meRouteDependencies.findUserById(session.userId);
 
     if (!user) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });

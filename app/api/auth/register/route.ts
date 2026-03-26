@@ -5,23 +5,39 @@ import { createUser, findUserByEmail } from '@/lib/repositories/userRepository';
 import { parseOrThrow } from '@/lib/validation/trading';
 import { registerRequestSchema } from '@/lib/contracts/apiContracts';
 
+const registerRouteDependencies = {
+  findUserByEmail,
+  createUser,
+  migrateAndSeedCollections,
+};
+
+export function __setRegisterRouteTestDependencies(overrides: Partial<typeof registerRouteDependencies>) {
+  Object.assign(registerRouteDependencies, overrides);
+}
+
+export function __resetRegisterRouteTestDependencies() {
+  registerRouteDependencies.findUserByEmail = findUserByEmail;
+  registerRouteDependencies.createUser = createUser;
+  registerRouteDependencies.migrateAndSeedCollections = migrateAndSeedCollections;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { email, password, name } = parseOrThrow(registerRequestSchema, body);
 
-    const exists = await findUserByEmail(email);
+    const exists = await registerRouteDependencies.findUserByEmail(email);
     if (exists) {
       return NextResponse.json({ success: false, error: 'User already exists' }, { status: 409 });
     }
 
-    const user = await createUser({
+    const user = await registerRouteDependencies.createUser({
       email,
       name,
       password_hash: hashPassword(password),
     });
 
-    await migrateAndSeedCollections(String(user._id));
+    await registerRouteDependencies.migrateAndSeedCollections(String(user._id));
 
     const res = NextResponse.json({
       success: true,

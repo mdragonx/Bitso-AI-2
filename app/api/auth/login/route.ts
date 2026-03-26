@@ -6,13 +6,27 @@ import { loginRequestSchema } from '@/lib/contracts/apiContracts';
 import { recordAuthAnomaly, withLifecycleLog } from '@/lib/observability/lifecycle';
 import { parseOrThrow } from '@/lib/validation/trading';
 
+const loginRouteDependencies = {
+  getUserModel,
+  migrateAndSeedCollections,
+};
+
+export function __setLoginRouteTestDependencies(overrides: Partial<typeof loginRouteDependencies>) {
+  Object.assign(loginRouteDependencies, overrides);
+}
+
+export function __resetLoginRouteTestDependencies() {
+  loginRouteDependencies.getUserModel = getUserModel;
+  loginRouteDependencies.migrateAndSeedCollections = migrateAndSeedCollections;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const correlationId = req.headers.get('x-correlation-id') || undefined;
     const body = await req.json();
     const { email, password } = parseOrThrow(loginRequestSchema, body);
 
-    const User = await getUserModel();
+    const User = await loginRouteDependencies.getUserModel();
     const user = await User.findOne({ email });
 
     const passwordHash = typeof user?.password_hash === 'string' ? user.password_hash : '';
@@ -41,7 +55,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Invalid email or password' }, { status: 401 });
     }
 
-    await migrateAndSeedCollections(String(user._id));
+    await loginRouteDependencies.migrateAndSeedCollections(String(user._id));
 
     const res = NextResponse.json({
       success: true,

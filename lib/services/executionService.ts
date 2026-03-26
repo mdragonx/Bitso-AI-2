@@ -6,6 +6,32 @@ import { fetchBitsoBalances, submitBitsoOrder } from '@/lib/adapters/bitsoApiAda
 import { persistRejectedTradeAttempt, validateExecutionRiskRules } from '@/lib/services/riskValidationService';
 import { runtimeConfig } from '@/lib/config/runtime';
 
+const executionServiceDependencies = {
+  migratePlaintextBitsoSecrets,
+  getBitsoCredentialModel,
+  decryptBitsoCredentialPair,
+  getTradeModel,
+  validateExecutionRiskRules,
+  persistRejectedTradeAttempt,
+  fetchBitsoBalances,
+  submitBitsoOrder,
+};
+
+export function __setExecutionServiceTestDependencies(overrides: Partial<typeof executionServiceDependencies>) {
+  Object.assign(executionServiceDependencies, overrides);
+}
+
+export function __resetExecutionServiceTestDependencies() {
+  executionServiceDependencies.migratePlaintextBitsoSecrets = migratePlaintextBitsoSecrets;
+  executionServiceDependencies.getBitsoCredentialModel = getBitsoCredentialModel;
+  executionServiceDependencies.decryptBitsoCredentialPair = decryptBitsoCredentialPair;
+  executionServiceDependencies.getTradeModel = getTradeModel;
+  executionServiceDependencies.validateExecutionRiskRules = validateExecutionRiskRules;
+  executionServiceDependencies.persistRejectedTradeAttempt = persistRejectedTradeAttempt;
+  executionServiceDependencies.fetchBitsoBalances = fetchBitsoBalances;
+  executionServiceDependencies.submitBitsoOrder = submitBitsoOrder;
+}
+
 export type ExecuteRecommendationInput = {
   recommendation: {
     signal_id?: string;
@@ -59,7 +85,7 @@ async function validateBalanceOnly(params: {
   major?: string;
   requestedNotional?: number;
 }) {
-  const balancesResult = await fetchBitsoBalances(params.apiKey, params.apiSecret);
+  const balancesResult = await executionServiceDependencies.fetchBitsoBalances(params.apiKey, params.apiSecret);
   if (!balancesResult.success) {
     return {
       ok: false,
@@ -118,7 +144,7 @@ async function submitOrderWithRetry(params: {
     const startedAt = Date.now();
 
     try {
-      const result = await submitBitsoOrder(params.apiKey, params.apiSecret, params.orderPayload);
+      const result = await executionServiceDependencies.submitBitsoOrder(params.apiKey, params.apiSecret, params.orderPayload);
       const latencyMs = Date.now() - startedAt;
 
       makeAuditLog('bitso_order_submit', {
@@ -185,16 +211,16 @@ export async function executeApprovedRecommendation(ownerUserId: string, input: 
   const normalizedBook = normalizeBook(recommendation.pair);
   const idempotencyKey = input.idempotency_key || `exec-${Date.now()}-${crypto.randomUUID()}`;
 
-  await migratePlaintextBitsoSecrets({ ownerUserIdForBackfill: ownerUserId });
-  const CredentialModel = await getBitsoCredentialModel();
+  await executionServiceDependencies.migratePlaintextBitsoSecrets({ ownerUserIdForBackfill: ownerUserId });
+  const CredentialModel = await executionServiceDependencies.getBitsoCredentialModel();
   const credential = await CredentialModel.findOne({ owner_user_id: ownerUserId });
   if (!credential) {
     throw new Error('No Bitso API credentials configured.');
   }
 
-  const { apiKey, apiSecret } = decryptBitsoCredentialPair(credential.toObject ? credential.toObject() : credential);
+  const { apiKey, apiSecret } = executionServiceDependencies.decryptBitsoCredentialPair(credential.toObject ? credential.toObject() : credential);
 
-  const TradeModel = await getTradeModel();
+  const TradeModel = await executionServiceDependencies.getTradeModel();
   const existing = await TradeModel.findOne({ owner_user_id: ownerUserId, idempotency_key: idempotencyKey });
   if (existing) {
     return {
@@ -237,7 +263,7 @@ export async function executeApprovedRecommendation(ownerUserId: string, input: 
     throw error;
   }
 
-  const riskCheck = await validateExecutionRiskRules({
+  const riskCheck = await executionServiceDependencies.validateExecutionRiskRules({
     ownerUserId,
     book: normalizedBook,
     side,
@@ -251,7 +277,7 @@ export async function executeApprovedRecommendation(ownerUserId: string, input: 
   });
 
   if (!riskCheck.ok) {
-    tradeDoc = await persistRejectedTradeAttempt({
+    tradeDoc = await executionServiceDependencies.persistRejectedTradeAttempt({
       ownerUserId,
       idempotencyKey,
       signalId: recommendation.signal_id,
