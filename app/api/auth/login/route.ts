@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getUserModel from '@/models/User';
-import { applySessionCookie, createSessionToken, verifyPassword } from '@/lib/auth';
+import { applySessionCookie, createSessionToken, hashPassword, verifyPassword } from '@/lib/auth';
 import { migrateAndSeedCollections } from '@/lib/seed';
 
 export async function POST(req: NextRequest) {
@@ -16,7 +16,27 @@ export async function POST(req: NextRequest) {
     const User = await getUserModel();
     const user = await User.findOne({ email });
 
-    if (!user || !verifyPassword(password, user.password_hash)) {
+    const passwordHash = typeof user?.password_hash === 'string' ? user.password_hash : '';
+    let isAuthenticated = !!passwordHash && verifyPassword(password, passwordHash);
+
+    if (!isAuthenticated && user && !passwordHash) {
+      const legacyPassword = typeof user.password === 'string' ? user.password : '';
+      if (legacyPassword && legacyPassword === password) {
+        const nextHash = hashPassword(password);
+        await User.updateOne(
+          { _id: user._id },
+          {
+            $set: { password_hash: nextHash },
+            $unset: { password: '' },
+          }
+        );
+        user.password_hash = nextHash;
+        user.password = undefined;
+        isAuthenticated = true;
+      }
+    }
+
+    if (!user || !isAuthenticated) {
       return NextResponse.json({ success: false, error: 'Invalid email or password' }, { status: 401 });
     }
 
