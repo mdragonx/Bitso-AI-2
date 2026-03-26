@@ -9,6 +9,7 @@ import DashboardSection from './sections/DashboardSection';
 import TradeHistorySection from './sections/TradeHistorySection';
 import RiskSettingsSection from './sections/RiskSettingsSection';
 import ApiSettingsSection from './sections/ApiSettingsSection';
+import SchedulerSection from './sections/SchedulerSection';
 import { clientFeatureFlags } from '@/lib/featureFlags';
 
 const MARKET_ANALYSIS_AGENT = '69c440a030aebe1ba52aede0';
@@ -580,6 +581,9 @@ export default function Page() {
                       else { setBalances([]); setTicker(null); }
                     });
                   }} />
+                )}
+                {activeScreen === 'scheduler' && (
+                  <SchedulerSection />
                 )}
               </main>
             </div>
