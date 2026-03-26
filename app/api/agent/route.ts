@@ -3,6 +3,10 @@ import parseLLMJson from '@/lib/jsonParser'
 
 const LYZR_TASK_URL = 'https://agent-prod.studio.lyzr.ai/v3/inference/chat/task'
 const LYZR_API_KEY = process.env.LYZR_API_KEY || ''
+const AI_PROVIDER = (process.env.AI_PROVIDER || 'lyzr').toLowerCase()
+const LOCAL_LLM_BASE_URL = process.env.LOCAL_LLM_BASE_URL || ''
+const LOCAL_LLM_API_KEY = process.env.LOCAL_LLM_API_KEY || ''
+const LOCAL_LLM_MODEL = process.env.LOCAL_LLM_MODEL || ''
 
 // Types
 interface ArtifactFile {
@@ -125,24 +129,73 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
 
-    if (!LYZR_API_KEY) {
-      return NextResponse.json(
-        {
-          success: false,
-          response: { status: 'error', result: {}, message: 'LYZR_API_KEY not configured' },
-          error: 'LYZR_API_KEY not configured on server',
+    if (AI_PROVIDER === 'lyzr') {
+      if (!LYZR_API_KEY) {
+        return NextResponse.json(
+          {
+            success: false,
+            response: { status: 'error', result: {}, message: 'LYZR_API_KEY not configured' },
+            error: 'LYZR_API_KEY not configured on server',
+          },
+          { status: 500 }
+        )
+      }
+
+      // ── Poll mode: body has task_id ──
+      if (body.task_id) {
+        return pollTask(body.task_id)
+      }
+
+      // ── Submit mode: body has message + agent_id ──
+      return submitTask(body)
+    }
+
+    if (AI_PROVIDER === 'openai_compatible') {
+      if (!LOCAL_LLM_BASE_URL || !LOCAL_LLM_MODEL) {
+        return NextResponse.json(
+          {
+            success: false,
+            response: {
+              status: 'error',
+              result: {},
+              message: 'LOCAL_LLM_BASE_URL and LOCAL_LLM_MODEL are required for openai_compatible provider',
+            },
+            error: 'Missing required local provider env vars: LOCAL_LLM_BASE_URL, LOCAL_LLM_MODEL',
+          },
+          { status: 500 }
+        )
+      }
+
+      if (body.task_id) {
+        return NextResponse.json(
+          {
+            success: false,
+            response: {
+              status: 'error',
+              result: {},
+              message: 'task_id polling is not supported for openai_compatible provider',
+            },
+            error: 'task_id polling is not supported for openai_compatible provider',
+          },
+          { status: 400 }
+        )
+      }
+
+      return submitLocalCompletion(body)
+    }
+
+    return NextResponse.json(
+      {
+        success: false,
+        response: {
+          status: 'error',
+          result: {},
+          message: `Unsupported AI_PROVIDER "${AI_PROVIDER}". Use "lyzr" or "openai_compatible".`,
         },
-        { status: 500 }
-      )
-    }
-
-    // ── Poll mode: body has task_id ──
-    if (body.task_id) {
-      return pollTask(body.task_id)
-    }
-
-    // ── Submit mode: body has message + agent_id ──
-    return submitTask(body)
+        error: `Unsupported AI_PROVIDER "${AI_PROVIDER}"`,
+      },
+      { status: 500 }
+    )
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Server error'
     return NextResponse.json(
@@ -154,6 +207,90 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
+}
+
+/**
+ * Submit a sync completion request to OpenAI-compatible APIs
+ */
+async function submitLocalCompletion(body: any) {
+  const { message, agent_id, user_id, session_id } = body
+
+  if (!message) {
+    return NextResponse.json(
+      {
+        success: false,
+        response: { status: 'error', result: {}, message: 'message is required' },
+        error: 'message is required',
+      },
+      { status: 400 }
+    )
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  }
+  if (LOCAL_LLM_API_KEY) {
+    headers.Authorization = `Bearer ${LOCAL_LLM_API_KEY}`
+  }
+
+  const completionRes = await fetch(`${LOCAL_LLM_BASE_URL.replace(/\/$/, '')}/v1/chat/completions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model: LOCAL_LLM_MODEL,
+      messages: [{ role: 'user', content: message }],
+    }),
+  })
+
+  const rawResponseText = await completionRes.text()
+
+  if (!completionRes.ok) {
+    let errorMsg = `Local completion failed with status ${completionRes.status}`
+    try {
+      const errorData = JSON.parse(rawResponseText)
+      errorMsg = errorData?.error?.message || errorData?.error || errorData?.message || errorMsg
+    } catch {}
+
+    return NextResponse.json(
+      {
+        success: false,
+        response: { status: 'error', result: {}, message: errorMsg },
+        error: errorMsg,
+        raw_response: rawResponseText,
+      },
+      { status: completionRes.status }
+    )
+  }
+
+  const completion = JSON.parse(rawResponseText)
+  const rawContent = completion?.choices?.[0]?.message?.content
+  const assistantText = Array.isArray(rawContent)
+    ? rawContent
+      .map((item: any) => (typeof item === 'string' ? item : item?.text || ''))
+      .join('')
+    : typeof rawContent === 'string'
+      ? rawContent
+      : ''
+
+  return NextResponse.json({
+    success: true,
+    status: 'completed',
+    response: {
+      status: 'success',
+      result: {
+        text: assistantText,
+        model: completion?.model,
+        usage: completion?.usage,
+        finish_reason: completion?.choices?.[0]?.finish_reason,
+      },
+      message: assistantText || undefined,
+    },
+    agent_id,
+    user_id,
+    session_id,
+    timestamp: new Date().toISOString(),
+    raw_response: rawResponseText,
+  })
 }
 
 /**
