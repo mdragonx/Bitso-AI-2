@@ -26,7 +26,6 @@ export const apiEnvelopeSchema = <T extends z.ZodTypeAny>(dataSchema: T) =>
 export const analysisTriggerRequestSchema = z.object({
   message: z.string().trim().min(1),
   agent_id: z.string().trim().min(1),
-  user_id: z.string().trim().optional(),
   assets: z.array(z.unknown()).optional(),
   metadata: z.record(z.unknown()).optional(),
 });
