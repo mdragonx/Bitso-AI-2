@@ -13,9 +13,12 @@ const TradeSchema = new Schema(
     result_status: { type: String, default: '' },
     risk_check_details: { type: String, default: '' },
     owner_user_id: { type: String, default: '' },
+    idempotency_key: { type: String, default: '', index: true },
   },
   { timestamps: true }
 );
+
+TradeSchema.index({ owner_user_id: 1, idempotency_key: 1 }, { unique: true, partialFilterExpression: { idempotency_key: { $type: 'string', $ne: '' } } });
 
 export default async function getTradeModel() {
   await connectToDatabase();

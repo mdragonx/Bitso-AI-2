@@ -14,8 +14,22 @@ async function handler(req: NextRequest) {
 
     if (req.method === 'POST') {
       const body = await req.json();
-      const doc = await Model.create({ ...body, owner_user_id: userId });
-      return NextResponse.json({ success: true, data: doc });
+      try {
+        const doc = await Model.create({ ...body, owner_user_id: userId });
+        return NextResponse.json({ success: true, data: doc });
+      } catch (createError: any) {
+        if (createError?.code === 11000 && body?.idempotency_key) {
+          const existing = await Model.findOne({
+            owner_user_id: userId,
+            idempotency_key: body.idempotency_key,
+          });
+
+          if (existing) {
+            return NextResponse.json({ success: true, data: existing, idempotent_replay: true });
+          }
+        }
+        throw createError;
+      }
     }
 
     return NextResponse.json({ success: false, error: 'Method not allowed' }, { status: 405 });
