@@ -44,7 +44,7 @@ export interface SchedulerWebhook {
   trigger_count: number
 }
 
-export type SchedulerProviderName = 'lyzr' | 'local'
+export type SchedulerProviderName = 'local'
 
 export interface SchedulerProviderResult<T = unknown> {
   success: boolean

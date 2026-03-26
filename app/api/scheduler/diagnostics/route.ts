@@ -24,14 +24,11 @@ export async function GET(request: NextRequest) {
   }
 
   const provider = resolveSchedulerProviderName()
-  const lyzrConfigured = Boolean(process.env.LYZR_API_KEY)
-
   return NextResponse.json({
     success: true,
     provider: {
       active: provider,
-      lyzrConfigured,
-      fallbackToLocal: provider === 'local' && lyzrConfigured === false,
+      mode: 'internal',
     },
     workerHeartbeat: getSchedulerWorkerState(),
     metrics: getSchedulerMetricsSnapshot(),
