@@ -11,15 +11,21 @@ import { Loader2, TrendingUp, TrendingDown, Minus, AlertTriangle, CheckCircle, X
 
 interface AnalysisResult {
   signal?: string;
-  confidence?: number;
+  confidence?: number | { score?: number; explanation?: string };
+  confidence_explanation?: string;
   technical_summary?: string;
   market_summary?: string;
+  indicator_summary?: {
+    technical_analysis?: string;
+    market_research?: string;
+  };
   risk_assessment?: string;
   recommended_entry_price?: string;
   recommended_exit_price?: string;
   stop_loss_price?: string;
   position_size_suggestion?: string;
   reasoning?: string;
+  reasoning_trace?: string;
 }
 
 interface TradeResult {
@@ -147,6 +153,17 @@ function renderMarkdown(text: string) {
       })}
     </div>
   );
+}
+
+function getConfidenceScore(confidence: AnalysisResult['confidence']): number {
+  if (typeof confidence === 'number') return confidence;
+  if (confidence && typeof confidence === 'object' && typeof confidence.score === 'number') return confidence.score;
+  return 0;
+}
+
+function getConfidenceExplanation(data: AnalysisResult): string {
+  if (typeof data.confidence === 'object' && typeof data.confidence?.explanation === 'string') return data.confidence.explanation;
+  return data.confidence_explanation ?? '';
 }
 
 function formatInline(text: string) {
@@ -308,12 +325,15 @@ export default function DashboardSection({
               <CardTitle className="font-serif tracking-wider text-lg">Market Recommendation</CardTitle>
               <div className="flex items-center gap-3">
                 <SignalBadge signal={data.signal} />
-                <span className="text-sm text-muted-foreground">{data.confidence ?? 0}% confidence</span>
+                <span className="text-sm text-muted-foreground">{getConfidenceScore(data.confidence)}% confidence</span>
               </div>
             </div>
             <div className="w-full bg-muted h-1.5 mt-2">
-              <div className="h-1.5 bg-primary transition-all duration-500" style={{ width: `${data.confidence ?? 0}%` }} />
+              <div className="h-1.5 bg-primary transition-all duration-500" style={{ width: `${getConfidenceScore(data.confidence)}%` }} />
             </div>
+            {getConfidenceExplanation(data) ? (
+              <p className="text-xs text-muted-foreground mt-2">{getConfidenceExplanation(data)}</p>
+            ) : null}
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -338,11 +358,11 @@ export default function DashboardSection({
             <div className="border-t border-border pt-4 space-y-3">
               <div>
                 <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Technical Summary</p>
-                {renderMarkdown(data.technical_summary ?? '')}
+                {renderMarkdown(data.technical_summary ?? data.indicator_summary?.technical_analysis ?? '')}
               </div>
               <div>
                 <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Market Summary</p>
-                {renderMarkdown(data.market_summary ?? '')}
+                {renderMarkdown(data.market_summary ?? data.indicator_summary?.market_research ?? '')}
               </div>
               {recommendationContext && recommendationSources.length > 0 && (
                 <div className="rounded-md border border-border/70 bg-muted/20 p-3">
@@ -363,7 +383,7 @@ export default function DashboardSection({
               </div>
               <div>
                 <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Reasoning</p>
-                {renderMarkdown(data.reasoning ?? '')}
+                {renderMarkdown(data.reasoning_trace ?? data.reasoning ?? '')}
               </div>
             </div>
 
