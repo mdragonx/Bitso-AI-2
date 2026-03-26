@@ -45,6 +45,41 @@ Example warning prefix:
 
 - `[db-health] collection naming drift detected ...`
 
+## Pre-deploy DB checklist
+
+Run before routing production traffic:
+
+1. Ensure `MONGODB_URI` (or `MONGO_URL`) points to the target deployment database.
+2. Run bootstrap:
+
+   ```bash
+   npm run db:bootstrap
+   ```
+
+3. Confirm migration tracking rows exist in `schema_migrations`:
+   - `2026-03-26.bootstrap.touch-core-model-collections.v1`
+   - `2026-03-26.bootstrap.sync-core-model-indexes.v1`
+4. Confirm no legacy naming drift warnings are present after startup.
+
+## Expected collection and index state after bootstrap
+
+Collections touched by bootstrap:
+
+- `users` (`User`)
+- `bitsocredentials` (`BitsoCredential`)
+- `risk_settings` (`RiskSetting`)
+- `trade_signals` (`TradeSignal`)
+- `trades` (`Trade`)
+- `schema_migrations` (`SchemaMigration`)
+
+Expected index highlights:
+
+- `users.email` unique index.
+- `bitsocredentials.owner_user_id` index.
+- `trades.owner_user_id + idempotency_key` unique partial index.
+- `schema_migrations.migration_id` unique index.
+- `schema_migrations.applied_at` descending index.
+
 ## Operational policy
 
 - DB admin scripts and manual queries should target canonical names only.
