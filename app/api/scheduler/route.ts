@@ -3,8 +3,62 @@ import { getSessionFromRequest } from '@/lib/auth'
 import { getSchedulerProvider, resolveSchedulerProviderName } from '@/lib/scheduler/providerFactory'
 import { SchedulerProviderResult } from '@/lib/scheduler/providers/types'
 import { logSchedulerEvent, persistSchedulerAuditEvent, SchedulerAction, SchedulerStatus } from '@/lib/scheduler/observability'
+import { z } from 'zod'
+import { CronExpressionParser } from 'cron-parser'
 
 const ENABLE_SCHEDULER = process.env.ENABLE_SCHEDULER?.toLowerCase() !== 'false'
+const DEFAULT_LIMIT = 50
+const MAX_LIMIT = 100
+const MAX_SKIP = 1000
+const MAX_MESSAGE_CHARS = 4000
+const MAX_MESSAGE_BYTES = 16_000
+
+const createLimiterStore = new Map<string, number[]>()
+const triggerLimiterStore = new Map<string, number[]>()
+const RATE_LIMIT_WINDOW_MS = 60_000
+const CREATE_RATE_LIMIT_MAX = 10
+const TRIGGER_RATE_LIMIT_MAX = 30
+
+const scheduleIdSchema = z.string().trim().min(1).max(128)
+const agentIdSchema = z.string().trim().min(1).max(128).regex(/^[A-Za-z0-9:_-]+$/)
+const cronExpressionSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(120)
+  .superRefine((value, ctx) => {
+    try {
+      CronExpressionParser.parse(value, { strict: true })
+    } catch {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid cron expression' })
+    }
+  })
+
+const timezoneSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .superRefine((value, ctx) => {
+    try {
+      Intl.DateTimeFormat('en-US', { timeZone: value }).format(new Date())
+    } catch {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid timezone' })
+    }
+  })
+
+const maxRetriesSchema = z.number().int().min(0).max(10)
+const retryDelaySchema = z.number().int().min(0).max(86_400)
+
+const createPayloadSchema = z.object({
+  action: z.literal('create').optional(),
+  agent_id: agentIdSchema,
+  cron_expression: cronExpressionSchema,
+  message: z.string().trim().min(1).max(MAX_MESSAGE_CHARS),
+  timezone: timezoneSchema.optional(),
+  max_retries: maxRetriesSchema.optional(),
+  retry_delay: retryDelaySchema.optional(),
+})
 
 function schedulerDisabledResponse() {
   return NextResponse.json(
@@ -47,11 +101,10 @@ function validateClientIdentityInput(
 ) {
   for (const identity of identityValues) {
     if (identity.value == null) continue
-    const normalized = String(identity.value).trim()
-    if (normalized && normalized !== userId) {
+    if (typeof identity.value !== 'string' || identity.value !== userId) {
       return NextResponse.json(
         { success: false, error: `${identity.key} must match authenticated user identity` },
-        { status: 400 }
+        { status: 403 }
       )
     }
   }
@@ -67,6 +120,36 @@ function toNumber(value: string | null): number | undefined {
   if (value == null || value.trim() === '') return undefined
   const n = Number(value)
   return Number.isFinite(n) ? n : undefined
+}
+
+function sanitizePagination(input: { skip?: number; limit?: number }) {
+  const skipInput = typeof input.skip === 'number' && Number.isFinite(input.skip) ? Math.floor(input.skip) : 0
+  const limitInput = typeof input.limit === 'number' && Number.isFinite(input.limit) ? Math.floor(input.limit) : DEFAULT_LIMIT
+
+  return {
+    skip: Math.min(Math.max(0, skipInput), MAX_SKIP),
+    limit: Math.min(Math.max(1, limitInput), MAX_LIMIT),
+  }
+}
+
+function enforceRateLimit(key: string, maxEvents: number, store: Map<string, number[]>) {
+  const now = Date.now()
+  const cutoff = now - RATE_LIMIT_WINDOW_MS
+  const values = (store.get(key) || []).filter(timestamp => timestamp > cutoff)
+  if (values.length >= maxEvents) {
+    return NextResponse.json(
+      { success: false, code: 'SCHEDULER_RATE_LIMITED', error: 'Too many requests' },
+      { status: 429 }
+    )
+  }
+
+  values.push(now)
+  store.set(key, values)
+  return null
+}
+
+function policyViolation(code: string, message: string, status = 422) {
+  return NextResponse.json({ success: false, code, error: message }, { status })
 }
 
 function activeProviderName() {
@@ -96,6 +179,15 @@ function normalizeProviderError(action: string, result: SchedulerProviderResult<
   }
 
   if (status >= 400 && status < 500) {
+    if (status === 403) {
+      return { status: 403, code: 'SCHEDULER_POLICY_VIOLATION', error: 'Scheduler ownership policy violation' }
+    }
+    if (status === 413) {
+      return { status: 413, code: 'SCHEDULER_PAYLOAD_TOO_LARGE', error: 'Scheduler payload too large' }
+    }
+    if (status === 429) {
+      return { status: 429, code: 'SCHEDULER_RATE_LIMITED', error: 'Too many scheduler requests' }
+    }
     return { status, code: 'SCHEDULER_VALIDATION_ERROR', error: 'Invalid scheduler request' }
   }
 
@@ -176,41 +268,50 @@ export async function GET(request: NextRequest) {
     const action = searchParams.get('action') || 'list'
     const scheduleId = searchParams.get('scheduleId')
     const agentId = searchParams.get('agentId')
+    const pagination = sanitizePagination({
+      skip: toNumber(searchParams.get('skip')),
+      limit: toNumber(searchParams.get('limit')),
+    })
 
     const identityQueryError = validateClientIdentityInput(userId, [
       { key: 'user_id', value: searchParams.get('user_id') },
       { key: 'userId', value: searchParams.get('userId') },
+      { key: 'owner_user_id', value: searchParams.get('owner_user_id') },
+      { key: 'ownerUserId', value: searchParams.get('ownerUserId') },
     ])
     if (identityQueryError) return identityQueryError
 
     switch (action) {
       case 'get': {
-        if (!scheduleId) {
+        const scheduleIdResult = scheduleIdSchema.safeParse(scheduleId)
+        if (!scheduleIdResult.success) {
           return NextResponse.json({ success: false, error: 'scheduleId is required' }, { status: 400 })
         }
-        const result = await provider.get(userId, scheduleId)
+        const result = await provider.get(userId, scheduleIdResult.data)
         if (!result.success || !result.data) return providerError('get', result)
         return normalizedSuccess('get', result.data.schedule)
       }
 
       case 'by-agent': {
-        if (!agentId) {
-          return NextResponse.json({ success: false, error: 'agentId is required' }, { status: 400 })
+        const agentIdResult = agentIdSchema.safeParse(agentId)
+        if (!agentIdResult.success) {
+          return policyViolation('SCHEDULER_VALIDATION_ERROR', 'Invalid agentId', 422)
         }
-        const result = await provider.byAgent(userId, agentId)
+        const result = await provider.byAgent(userId, agentIdResult.data)
         if (!result.success || !result.data) return providerError('by-agent', result)
         return normalizedSuccess('by-agent', result.data)
       }
 
       case 'logs': {
-        if (!scheduleId) {
-          return NextResponse.json({ success: false, error: 'scheduleId is required' }, { status: 400 })
+        const scheduleIdResult = scheduleIdSchema.safeParse(scheduleId)
+        if (!scheduleIdResult.success) {
+          return policyViolation('SCHEDULER_VALIDATION_ERROR', 'Invalid scheduleId', 422)
         }
         const result = await provider.logs({
           userId,
-          scheduleId,
-          skip: toNumber(searchParams.get('skip')),
-          limit: toNumber(searchParams.get('limit')),
+          scheduleId: scheduleIdResult.data,
+          skip: pagination.skip,
+          limit: pagination.limit,
         })
         if (!result.success || !result.data) return providerError('logs', result)
         return normalizedSuccess('logs', result.data)
@@ -223,8 +324,8 @@ export async function GET(request: NextRequest) {
           success: toBool(searchParams.get('success')),
           hours: toNumber(searchParams.get('hours')),
           days: toNumber(searchParams.get('days')),
-          skip: toNumber(searchParams.get('skip')),
-          limit: toNumber(searchParams.get('limit')),
+          skip: pagination.skip,
+          limit: pagination.limit,
         })
         if (!result.success || !result.data) return providerError('recent', result)
         return normalizedSuccess('recent', result.data)
@@ -236,8 +337,8 @@ export async function GET(request: NextRequest) {
           userId,
           agentId,
           isActive: toBool(searchParams.get('is_active')),
-          skip: toNumber(searchParams.get('skip')),
-          limit: toNumber(searchParams.get('limit')),
+          skip: pagination.skip,
+          limit: pagination.limit,
         })
         if (!result.success || !result.data) return providerError('list', result)
         return normalizedSuccess('list', result.data)
@@ -273,19 +374,25 @@ export async function POST(request: NextRequest) {
     const identityBodyError = validateClientIdentityInput(userId, [
       { key: 'user_id', value: body?.user_id },
       { key: 'userId', value: body?.userId },
+      { key: 'owner_user_id', value: body?.owner_user_id },
+      { key: 'ownerUserId', value: body?.ownerUserId },
     ])
     if (identityBodyError) return identityBodyError
 
     switch (action) {
       case 'trigger': {
-        if (!scheduleId) {
-          return NextResponse.json({ success: false, error: 'scheduleId is required' }, { status: 400 })
+        const scheduleIdResult = scheduleIdSchema.safeParse(scheduleId)
+        if (!scheduleIdResult.success) {
+          return policyViolation('SCHEDULER_VALIDATION_ERROR', 'Invalid scheduleId', 422)
         }
-        const result = await provider.trigger(userId, scheduleId)
+        const triggerRateLimitError = enforceRateLimit(userId, TRIGGER_RATE_LIMIT_MAX, triggerLimiterStore)
+        if (triggerRateLimitError) return triggerRateLimitError
+
+        const result = await provider.trigger(userId, scheduleIdResult.data)
         if (!result.success || !result.data) {
           await emitSchedulerAuditAndLog({
             owner_user_id: userId,
-            schedule_id: scheduleId,
+            schedule_id: scheduleIdResult.data,
             action: 'trigger',
             provider: providerName,
             status: 'failure',
@@ -296,7 +403,7 @@ export async function POST(request: NextRequest) {
         }
         await emitSchedulerAuditAndLog({
           owner_user_id: userId,
-          schedule_id: scheduleId,
+          schedule_id: scheduleIdResult.data,
           action: 'trigger',
           provider: providerName,
           status: 'success',
@@ -306,14 +413,15 @@ export async function POST(request: NextRequest) {
       }
 
       case 'pause': {
-        if (!scheduleId) {
-          return NextResponse.json({ success: false, error: 'scheduleId is required' }, { status: 400 })
+        const scheduleIdResult = scheduleIdSchema.safeParse(scheduleId)
+        if (!scheduleIdResult.success) {
+          return policyViolation('SCHEDULER_VALIDATION_ERROR', 'Invalid scheduleId', 422)
         }
-        const result = await provider.pause(userId, scheduleId)
+        const result = await provider.pause(userId, scheduleIdResult.data)
         if (!result.success || !result.data) {
           await emitSchedulerAuditAndLog({
             owner_user_id: userId,
-            schedule_id: scheduleId,
+            schedule_id: scheduleIdResult.data,
             action: 'pause',
             provider: providerName,
             status: 'failure',
@@ -324,7 +432,7 @@ export async function POST(request: NextRequest) {
         }
         await emitSchedulerAuditAndLog({
           owner_user_id: userId,
-          schedule_id: scheduleId,
+          schedule_id: scheduleIdResult.data,
           action: 'pause',
           provider: providerName,
           status: 'success',
@@ -334,14 +442,15 @@ export async function POST(request: NextRequest) {
       }
 
       case 'resume': {
-        if (!scheduleId) {
-          return NextResponse.json({ success: false, error: 'scheduleId is required' }, { status: 400 })
+        const scheduleIdResult = scheduleIdSchema.safeParse(scheduleId)
+        if (!scheduleIdResult.success) {
+          return policyViolation('SCHEDULER_VALIDATION_ERROR', 'Invalid scheduleId', 422)
         }
-        const result = await provider.resume(userId, scheduleId)
+        const result = await provider.resume(userId, scheduleIdResult.data)
         if (!result.success || !result.data) {
           await emitSchedulerAuditAndLog({
             owner_user_id: userId,
-            schedule_id: scheduleId,
+            schedule_id: scheduleIdResult.data,
             action: 'resume',
             provider: providerName,
             status: 'failure',
@@ -352,7 +461,7 @@ export async function POST(request: NextRequest) {
         }
         await emitSchedulerAuditAndLog({
           owner_user_id: userId,
-          schedule_id: scheduleId,
+          schedule_id: scheduleIdResult.data,
           action: 'resume',
           provider: providerName,
           status: 'success',
@@ -363,21 +472,30 @@ export async function POST(request: NextRequest) {
 
       case 'create':
       default: {
-        if (!params.agent_id || !params.cron_expression || !params.message) {
-          return NextResponse.json(
-            { success: false, error: 'agent_id, cron_expression, and message are required' },
-            { status: 400 }
-          )
+        const createRateLimitError = enforceRateLimit(userId, CREATE_RATE_LIMIT_MAX, createLimiterStore)
+        if (createRateLimitError) return createRateLimitError
+
+        const parsedPayload = createPayloadSchema.safeParse({
+          action,
+          ...params,
+        })
+        if (!parsedPayload.success) {
+          return policyViolation('SCHEDULER_VALIDATION_ERROR', parsedPayload.error.issues[0]?.message || 'Invalid request payload', 422)
+        }
+
+        const messageBytes = Buffer.byteLength(parsedPayload.data.message, 'utf8')
+        if (messageBytes > MAX_MESSAGE_BYTES) {
+          return policyViolation('SCHEDULER_PAYLOAD_TOO_LARGE', 'Schedule message exceeds byte size limit', 413)
         }
 
         const result = await provider.create({
           userId,
-          agent_id: params.agent_id,
-          cron_expression: params.cron_expression,
-          message: params.message,
-          timezone: params.timezone,
-          max_retries: params.max_retries,
-          retry_delay: params.retry_delay,
+          agent_id: parsedPayload.data.agent_id,
+          cron_expression: parsedPayload.data.cron_expression,
+          message: parsedPayload.data.message,
+          timezone: parsedPayload.data.timezone,
+          max_retries: parsedPayload.data.max_retries,
+          retry_delay: parsedPayload.data.retry_delay,
         })
         if (!result.success || !result.data) {
           await emitSchedulerAuditAndLog({
@@ -430,14 +548,17 @@ export async function DELETE(request: NextRequest) {
     const identityBodyError = validateClientIdentityInput(userId, [
       { key: 'user_id', value: body?.user_id },
       { key: 'userId', value: body?.userId },
+      { key: 'owner_user_id', value: body?.owner_user_id },
+      { key: 'ownerUserId', value: body?.ownerUserId },
     ])
     if (identityBodyError) return identityBodyError
 
-    if (!scheduleId) {
-      return NextResponse.json({ success: false, error: 'scheduleId is required' }, { status: 400 })
+    const scheduleIdResult = scheduleIdSchema.safeParse(scheduleId)
+    if (!scheduleIdResult.success) {
+      return policyViolation('SCHEDULER_VALIDATION_ERROR', 'Invalid scheduleId', 422)
     }
 
-    const result = await provider.delete(userId, scheduleId)
+    const result = await provider.delete(userId, scheduleIdResult.data)
     if (!result.success || !result.data) return providerError('delete', result)
 
     return normalizedSuccess('delete', result.data)

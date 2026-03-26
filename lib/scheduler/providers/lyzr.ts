@@ -9,6 +9,8 @@ import {
 
 const SCHEDULER_BASE_URL = 'https://scheduler.studio.lyzr.ai'
 const LYZR_API_KEY = process.env.LYZR_API_KEY || ''
+const MAX_LIMIT = 100
+const MAX_SKIP = 1000
 
 function headers() {
   return {
@@ -63,90 +65,143 @@ function normalizeSchedule(raw: any): SchedulerSchedule {
   }
 }
 
+function sanitizePagination(skip?: number, limit?: number) {
+  const normalizedSkip = typeof skip === 'number' && Number.isFinite(skip) ? Math.floor(skip) : 0
+  const normalizedLimit = typeof limit === 'number' && Number.isFinite(limit) ? Math.floor(limit) : 50
+  return {
+    skip: Math.min(Math.max(0, normalizedSkip), MAX_SKIP),
+    limit: Math.min(Math.max(1, normalizedLimit), MAX_LIMIT),
+  }
+}
+
+function scheduleOwnedByUser(schedule: SchedulerSchedule, userId: string) {
+  return schedule.user_id === userId
+}
+
+async function fetchOwnedSchedule(userId: string, scheduleId: string): Promise<SchedulerProviderResult<{ schedule: SchedulerSchedule }>> {
+  const response = await fetch(`${SCHEDULER_BASE_URL}/schedules/${scheduleId}`, { headers: headers() })
+  if (!response.ok) return mapError(response, 'Scheduler API error')
+
+  const data = await safeJson(response)
+  const schedule = normalizeSchedule(data)
+  if (!scheduleOwnedByUser(schedule, userId)) {
+    return { success: false, status: 403, error: 'Cross-user schedule access denied' }
+  }
+
+  return { success: true, data: { schedule } }
+}
+
 export const lyzrSchedulerProvider: SchedulerProvider = {
   name: 'lyzr',
 
   async list({ userId, agentId, isActive, skip, limit }) {
+    const pagination = sanitizePagination(skip, limit)
     const query = new URLSearchParams()
     query.set('user_id', userId)
     if (agentId) query.set('agent_id', agentId)
     if (typeof isActive === 'boolean') query.set('is_active', String(isActive))
-    if (typeof skip === 'number') query.set('skip', String(skip))
-    if (typeof limit === 'number') query.set('limit', String(limit))
+    query.set('skip', String(pagination.skip))
+    query.set('limit', String(pagination.limit))
 
     const response = await fetch(`${SCHEDULER_BASE_URL}/schedules/?${query}`, { headers: headers() })
     if (!response.ok) return mapError(response, 'Scheduler API error')
 
     const data = await safeJson(response)
+    const schedules = Array.isArray(data?.schedules) ? data.schedules.map(normalizeSchedule) : []
+    const scopedSchedules = schedules.filter(schedule => scheduleOwnedByUser(schedule, userId))
+    if (scopedSchedules.length !== schedules.length) {
+      return { success: false, status: 403, error: 'Cross-user schedule access denied' }
+    }
     return {
       success: true,
       data: {
-        schedules: Array.isArray(data?.schedules) ? data.schedules.map(normalizeSchedule) : [],
-        total: Number(data?.total ?? 0),
+        schedules: scopedSchedules,
+        total: scopedSchedules.length,
       },
     }
   },
 
-  async get(_userId, scheduleId) {
-    const response = await fetch(`${SCHEDULER_BASE_URL}/schedules/${scheduleId}`, { headers: headers() })
-    if (!response.ok) return mapError(response, 'Scheduler API error')
-
-    const data = await safeJson(response)
-    return { success: true, data: { schedule: normalizeSchedule(data) } }
+  async get(userId, scheduleId) {
+    return fetchOwnedSchedule(userId, scheduleId)
   },
 
-  async byAgent(_userId, agentId) {
+  async byAgent(userId, agentId) {
     const response = await fetch(`${SCHEDULER_BASE_URL}/schedules/by-agent/${agentId}`, { headers: headers() })
     if (!response.ok) return mapError(response, 'Scheduler API error')
 
     const data = await safeJson(response)
+    const schedules = Array.isArray(data?.schedules) ? data.schedules.map(normalizeSchedule) : []
+    const scopedSchedules = schedules.filter(schedule => scheduleOwnedByUser(schedule, userId))
+    if (scopedSchedules.length !== schedules.length) {
+      return { success: false, status: 403, error: 'Cross-user schedule access denied' }
+    }
     return {
       success: true,
       data: {
         agent_id: String(data?.agent_id || agentId),
-        schedules: Array.isArray(data?.schedules) ? data.schedules.map(normalizeSchedule) : [],
+        schedules: scopedSchedules,
         webhooks: Array.isArray(data?.webhooks) ? data.webhooks : [],
       },
     }
   },
 
-  async logs({ scheduleId, skip, limit }) {
+  async logs({ userId, scheduleId, skip, limit }) {
+    const ownership = await fetchOwnedSchedule(userId, scheduleId)
+    if (!ownership.success) {
+      return { success: false, status: ownership.status || 403, error: ownership.error || 'Cross-user schedule access denied' }
+    }
+
+    const pagination = sanitizePagination(skip, limit)
     const query = new URLSearchParams()
-    if (typeof skip === 'number') query.set('skip', String(skip))
-    if (typeof limit === 'number') query.set('limit', String(limit))
+    query.set('skip', String(pagination.skip))
+    query.set('limit', String(pagination.limit))
     const suffix = query.toString() ? `?${query.toString()}` : ''
 
     const response = await fetch(`${SCHEDULER_BASE_URL}/schedules/${scheduleId}/logs${suffix}`, { headers: headers() })
     if (!response.ok) return mapError(response, 'Scheduler API error')
 
     const data = await safeJson(response)
+    const executions = Array.isArray(data?.executions)
+      ? data.executions.filter((execution: any) => String(execution?.user_id || execution?.owner_user_id || '') === userId)
+      : []
+    if (Array.isArray(data?.executions) && executions.length !== data.executions.length) {
+      return { success: false, status: 403, error: 'Cross-user execution access denied' }
+    }
     return {
       success: true,
       data: {
-        executions: Array.isArray(data?.executions) ? data.executions : [],
-        total: Number(data?.total ?? 0),
+        executions,
+        total: executions.length,
       },
     }
   },
 
-  async recent({ agentId, success, hours, days, skip, limit }) {
+  async recent({ userId, agentId, success, hours, days, skip, limit }) {
+    const pagination = sanitizePagination(skip, limit)
     const query = new URLSearchParams()
+    query.set('user_id', userId)
     if (agentId) query.set('agent_id', agentId)
     if (typeof success === 'boolean') query.set('success', String(success))
     if (typeof hours === 'number') query.set('hours', String(hours))
     if (typeof days === 'number') query.set('days', String(days))
-    if (typeof skip === 'number') query.set('skip', String(skip))
-    if (typeof limit === 'number') query.set('limit', String(limit))
+    query.set('skip', String(pagination.skip))
+    query.set('limit', String(pagination.limit))
 
     const response = await fetch(`${SCHEDULER_BASE_URL}/schedules/executions/recent?${query}`, { headers: headers() })
     if (!response.ok) return mapError(response, 'Scheduler API error')
 
     const data = await safeJson(response)
+    const executions = Array.isArray(data?.executions)
+      ? data.executions.filter((execution: any) => String(execution?.user_id || execution?.owner_user_id || '') === userId)
+      : []
+    if (Array.isArray(data?.executions) && executions.length !== data.executions.length) {
+      return { success: false, status: 403, error: 'Cross-user execution access denied' }
+    }
     return {
       success: true,
       data: {
-        executions: Array.isArray(data?.executions) ? data.executions : [],
-        total: Number(data?.total ?? 0),
+        executions,
+        total: executions.length,
       },
     }
   },
@@ -168,24 +223,38 @@ export const lyzrSchedulerProvider: SchedulerProvider = {
     if (!response.ok) return mapError(response, 'Scheduler API error')
 
     const data = await safeJson(response)
-    return { success: true, status: 201, data: { schedule: normalizeSchedule(data) } }
+    const schedule = normalizeSchedule(data)
+    if (!scheduleOwnedByUser(schedule, params.userId)) {
+      return { success: false, status: 403, error: 'Cross-user schedule access denied' }
+    }
+    return { success: true, status: 201, data: { schedule } }
   },
 
-  async pause(_userId, scheduleId) {
+  async pause(userId, scheduleId) {
+    const ownership = await fetchOwnedSchedule(userId, scheduleId)
+    if (!ownership.success) return { success: false, status: ownership.status || 403, error: ownership.error || 'Cross-user schedule access denied' }
     const response = await fetch(`${SCHEDULER_BASE_URL}/schedules/${scheduleId}/pause`, { method: 'POST', headers: headers() })
     if (!response.ok) return mapError(response, 'Scheduler API error')
     const data = await safeJson(response)
-    return { success: true, data: { schedule: normalizeSchedule(data) } }
+    const schedule = normalizeSchedule(data)
+    if (!scheduleOwnedByUser(schedule, userId)) return { success: false, status: 403, error: 'Cross-user schedule access denied' }
+    return { success: true, data: { schedule } }
   },
 
-  async resume(_userId, scheduleId) {
+  async resume(userId, scheduleId) {
+    const ownership = await fetchOwnedSchedule(userId, scheduleId)
+    if (!ownership.success) return { success: false, status: ownership.status || 403, error: ownership.error || 'Cross-user schedule access denied' }
     const response = await fetch(`${SCHEDULER_BASE_URL}/schedules/${scheduleId}/resume`, { method: 'POST', headers: headers() })
     if (!response.ok) return mapError(response, 'Scheduler API error')
     const data = await safeJson(response)
-    return { success: true, data: { schedule: normalizeSchedule(data) } }
+    const schedule = normalizeSchedule(data)
+    if (!scheduleOwnedByUser(schedule, userId)) return { success: false, status: 403, error: 'Cross-user schedule access denied' }
+    return { success: true, data: { schedule } }
   },
 
-  async trigger(_userId, scheduleId) {
+  async trigger(userId, scheduleId) {
+    const ownership = await fetchOwnedSchedule(userId, scheduleId)
+    if (!ownership.success) return { success: false, status: ownership.status || 403, error: ownership.error || 'Cross-user schedule access denied' }
     const response = await fetch(`${SCHEDULER_BASE_URL}/schedules/${scheduleId}/trigger`, { method: 'POST', headers: headers() })
     if (response.status === 202) {
       return { success: true, status: 202, data: { message: 'Schedule triggered successfully' } }
@@ -201,7 +270,9 @@ export const lyzrSchedulerProvider: SchedulerProvider = {
     return { success: true, data: { message: 'Schedule triggered successfully' } }
   },
 
-  async delete(_userId, scheduleId) {
+  async delete(userId, scheduleId) {
+    const ownership = await fetchOwnedSchedule(userId, scheduleId)
+    if (!ownership.success) return { success: false, status: ownership.status || 403, error: ownership.error || 'Cross-user schedule access denied' }
     const response = await fetch(`${SCHEDULER_BASE_URL}/schedules/${scheduleId}`, { method: 'DELETE', headers: headers() })
     if (response.status === 204 || response.ok) {
       return { success: true, data: { message: 'Schedule deleted successfully', scheduleId } }
