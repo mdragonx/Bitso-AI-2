@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSessionFromRequest } from '@/lib/auth'
 import { getSchedulerProvider, resolveSchedulerProviderName } from '@/lib/scheduler/providerFactory'
 import { SchedulerProviderResult } from '@/lib/scheduler/providers/types'
+import { logSchedulerEvent, persistSchedulerAuditEvent, SchedulerAction, SchedulerStatus } from '@/lib/scheduler/observability'
 
 const ENABLE_SCHEDULER = process.env.ENABLE_SCHEDULER?.toLowerCase() !== 'false'
 
@@ -128,6 +129,40 @@ function normalizedSuccess(action: string, payload: Record<string, unknown>, sta
   )
 }
 
+async function emitSchedulerAuditAndLog(input: {
+  owner_user_id: string
+  schedule_id?: string | null
+  action: SchedulerAction
+  provider: string
+  status: SchedulerStatus
+  startedAtMs: number
+  error?: unknown
+}) {
+  const latencyMs = Date.now() - input.startedAtMs
+  const errorClass =
+    input.error instanceof Error ? input.error.name : input.error ? 'SchedulerRequestError' : null
+
+  logSchedulerEvent({
+    owner_user_id: input.owner_user_id,
+    schedule_id: input.schedule_id,
+    action: input.action,
+    provider: input.provider,
+    status: input.status,
+    latency_ms: latencyMs,
+    error_class: errorClass,
+  })
+
+  await persistSchedulerAuditEvent({
+    owner_user_id: input.owner_user_id,
+    schedule_id: input.schedule_id,
+    action: input.action,
+    provider: input.provider,
+    status: input.status,
+    latency_ms: latencyMs,
+    error_class: errorClass,
+  })
+}
+
 export async function GET(request: NextRequest) {
   const feature = featureCheck()
   if (feature) return feature
@@ -229,7 +264,9 @@ export async function POST(request: NextRequest) {
   if (userError || !userId) return userError
 
   try {
+    const startedAtMs = Date.now()
     const provider = getSchedulerProvider()
+    const providerName = provider.name
     const body = await request.json()
     const { action, scheduleId, ...params } = body
 
@@ -245,7 +282,26 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, error: 'scheduleId is required' }, { status: 400 })
         }
         const result = await provider.trigger(userId, scheduleId)
-        if (!result.success || !result.data) return providerError('trigger', result)
+        if (!result.success || !result.data) {
+          await emitSchedulerAuditAndLog({
+            owner_user_id: userId,
+            schedule_id: scheduleId,
+            action: 'trigger',
+            provider: providerName,
+            status: 'failure',
+            startedAtMs,
+            error: result.error,
+          })
+          return providerError('trigger', result)
+        }
+        await emitSchedulerAuditAndLog({
+          owner_user_id: userId,
+          schedule_id: scheduleId,
+          action: 'trigger',
+          provider: providerName,
+          status: 'success',
+          startedAtMs,
+        })
         return normalizedSuccess('trigger', result.data, result.status || 200)
       }
 
@@ -254,7 +310,26 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, error: 'scheduleId is required' }, { status: 400 })
         }
         const result = await provider.pause(userId, scheduleId)
-        if (!result.success || !result.data) return providerError('pause', result)
+        if (!result.success || !result.data) {
+          await emitSchedulerAuditAndLog({
+            owner_user_id: userId,
+            schedule_id: scheduleId,
+            action: 'pause',
+            provider: providerName,
+            status: 'failure',
+            startedAtMs,
+            error: result.error,
+          })
+          return providerError('pause', result)
+        }
+        await emitSchedulerAuditAndLog({
+          owner_user_id: userId,
+          schedule_id: scheduleId,
+          action: 'pause',
+          provider: providerName,
+          status: 'success',
+          startedAtMs,
+        })
         return normalizedSuccess('pause', result.data.schedule)
       }
 
@@ -263,7 +338,26 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, error: 'scheduleId is required' }, { status: 400 })
         }
         const result = await provider.resume(userId, scheduleId)
-        if (!result.success || !result.data) return providerError('resume', result)
+        if (!result.success || !result.data) {
+          await emitSchedulerAuditAndLog({
+            owner_user_id: userId,
+            schedule_id: scheduleId,
+            action: 'resume',
+            provider: providerName,
+            status: 'failure',
+            startedAtMs,
+            error: result.error,
+          })
+          return providerError('resume', result)
+        }
+        await emitSchedulerAuditAndLog({
+          owner_user_id: userId,
+          schedule_id: scheduleId,
+          action: 'resume',
+          provider: providerName,
+          status: 'success',
+          startedAtMs,
+        })
         return normalizedSuccess('resume', result.data.schedule)
       }
 
@@ -285,7 +379,26 @@ export async function POST(request: NextRequest) {
           max_retries: params.max_retries,
           retry_delay: params.retry_delay,
         })
-        if (!result.success || !result.data) return providerError('create', result)
+        if (!result.success || !result.data) {
+          await emitSchedulerAuditAndLog({
+            owner_user_id: userId,
+            schedule_id: null,
+            action: 'create',
+            provider: providerName,
+            status: 'failure',
+            startedAtMs,
+            error: result.error,
+          })
+          return providerError('create', result)
+        }
+        await emitSchedulerAuditAndLog({
+          owner_user_id: userId,
+          schedule_id: result.data.schedule.id,
+          action: 'create',
+          provider: providerName,
+          status: 'success',
+          startedAtMs,
+        })
         return normalizedSuccess('create', result.data.schedule, result.status || 201)
       }
     }

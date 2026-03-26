@@ -4,6 +4,13 @@ import { CronExpressionParser } from 'cron-parser'
 import getScheduleExecutionModel from '@/models/ScheduleExecution'
 import getScheduleModel from '@/models/Schedule'
 import { getAIProviderClient } from '@/lib/ai/providerFactory'
+import {
+  getSchedulerMetricsSnapshot,
+  logSchedulerEvent,
+  persistSchedulerAuditEvent,
+  recordExecutionMetrics,
+  recordWorkerHeartbeat,
+} from '@/lib/scheduler/observability'
 
 const MIN_INTERVAL_MS = 30_000
 const MAX_INTERVAL_MS = 60_000
@@ -105,64 +112,107 @@ async function processSchedule(scheduleDoc: any) {
 
   const scheduleId = String(scheduleDoc._id)
   const executedAt = getNow()
+  const startedAtMs = Date.now()
+  const queueLagMs = Math.max(0, executedAt.getTime() - new Date(scheduleDoc.next_run_time || executedAt).getTime())
+  const provider = 'local'
+  const maxAttempts = Math.max(1, Number(scheduleDoc.max_retries ?? 1))
+  const retryDelayMs = Math.max(0, Number(scheduleDoc.retry_delay ?? 0) * 1000)
+  let finalSuccess = false
+  let retriesUsed = 0
+  let errorClass: string | null = null
 
-  try {
-    const aiResponse = await callAIAgentServerSide(scheduleDoc.message, scheduleDoc.agent_id, scheduleDoc.owner_user_id)
-
-    await Execution.create({
-      schedule_id: scheduleId,
-      owner_user_id: scheduleDoc.owner_user_id,
-      executed_at: executedAt,
-      attempt: 1,
-      success: aiResponse.status === 'success',
-      response_status: aiResponse.status === 'success' ? 200 : 500,
-      response_output: JSON.stringify(aiResponse.result ?? {}),
-      error_message: aiResponse.status === 'error' ? aiResponse.message || 'Agent execution failed' : null,
-      provider: 'local',
-    })
-
-    const nextRun = computeNextRunTime(scheduleDoc.cron_expression, scheduleDoc.timezone || 'UTC', executedAt)
-
-    await Schedule.updateOne(
-      { _id: scheduleDoc._id, lock_owner: WORKER_ID },
-      {
-        $set: {
-          last_run_at: executedAt,
-          last_run_success: aiResponse.status === 'success',
-          next_run_time: nextRun,
-          lock_owner: null,
-          lock_expires_at: null,
-        },
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const aiResponse = await callAIAgentServerSide(scheduleDoc.message, scheduleDoc.agent_id, scheduleDoc.owner_user_id)
+      const success = aiResponse.status === 'success'
+      if (!success) {
+        errorClass = 'AgentExecutionError'
       }
-    )
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown scheduler error'
 
-    await Execution.create({
-      schedule_id: scheduleId,
-      owner_user_id: scheduleDoc.owner_user_id,
-      executed_at: executedAt,
-      attempt: 1,
-      success: false,
-      response_status: 500,
-      response_output: '',
-      error_message: errorMessage,
-      provider: 'local',
-    })
+      await Execution.create({
+        schedule_id: scheduleId,
+        owner_user_id: scheduleDoc.owner_user_id,
+        executed_at: executedAt,
+        attempt,
+        success,
+        response_status: success ? 200 : 500,
+        response_output: JSON.stringify(aiResponse.result ?? {}),
+        error_message: aiResponse.status === 'error' ? aiResponse.message || 'Agent execution failed' : null,
+        provider,
+      })
 
-    await Schedule.updateOne(
-      { _id: scheduleDoc._id, lock_owner: WORKER_ID },
-      {
-        $set: {
-          last_run_at: executedAt,
-          last_run_success: false,
-          next_run_time: computeNextRunTime(scheduleDoc.cron_expression, scheduleDoc.timezone || 'UTC', executedAt),
-          lock_owner: null,
-          lock_expires_at: null,
-        },
+      if (success) {
+        finalSuccess = true
+        retriesUsed = Math.max(0, attempt - 1)
+        break
       }
-    )
+
+      if (attempt < maxAttempts && retryDelayMs > 0) {
+        await new Promise(resolve => setTimeout(resolve, retryDelayMs))
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown scheduler error'
+      errorClass = error instanceof Error ? error.name : 'UnknownSchedulerError'
+
+      await Execution.create({
+        schedule_id: scheduleId,
+        owner_user_id: scheduleDoc.owner_user_id,
+        executed_at: executedAt,
+        attempt,
+        success: false,
+        response_status: 500,
+        response_output: '',
+        error_message: errorMessage,
+        provider,
+      })
+
+      if (attempt < maxAttempts && retryDelayMs > 0) {
+        await new Promise(resolve => setTimeout(resolve, retryDelayMs))
+      }
+    }
   }
+
+  const nextRun = computeNextRunTime(scheduleDoc.cron_expression, scheduleDoc.timezone || 'UTC', executedAt)
+  if (!finalSuccess) {
+    retriesUsed = Math.max(0, maxAttempts - 1)
+  }
+
+  await Schedule.updateOne(
+    { _id: scheduleDoc._id, lock_owner: WORKER_ID },
+    {
+      $set: {
+        last_run_at: executedAt,
+        last_run_success: finalSuccess,
+        next_run_time: nextRun,
+        lock_owner: null,
+        lock_expires_at: null,
+      },
+    }
+  )
+
+  const latencyMs = Date.now() - startedAtMs
+  const status = finalSuccess ? 'success' : 'failure'
+  logSchedulerEvent({
+    owner_user_id: scheduleDoc.owner_user_id,
+    schedule_id: scheduleId,
+    action: 'execute',
+    provider,
+    status,
+    latency_ms: latencyMs,
+    error_class: errorClass,
+    details: { queue_lag_ms: queueLagMs, retries: retriesUsed },
+  })
+  await persistSchedulerAuditEvent({
+    owner_user_id: scheduleDoc.owner_user_id,
+    schedule_id: scheduleId,
+    action: 'execute',
+    provider,
+    status,
+    latency_ms: latencyMs,
+    error_class: errorClass,
+    details: { queue_lag_ms: queueLagMs, retries: retriesUsed },
+  })
+  recordExecutionMetrics({ success: finalSuccess, queueLagMs, retries: retriesUsed })
 }
 
 export async function runSchedulerTick() {
@@ -173,6 +223,7 @@ export async function runSchedulerTick() {
   state.lastStartedAt = getNow()
 
   try {
+    recordWorkerHeartbeat()
     const Schedule = await getScheduleModel()
     const now = getNow()
 
@@ -241,5 +292,6 @@ export function getSchedulerWorkerState() {
     lastStartedAt: state.lastStartedAt?.toISOString() || null,
     lastCompletedAt: state.lastCompletedAt?.toISOString() || null,
     lastError: state.lastError,
+    metrics: getSchedulerMetricsSnapshot(),
   }
 }
