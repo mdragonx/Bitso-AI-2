@@ -7,7 +7,7 @@ This project now enforces startup-time configuration validation and environment-
 Set these before starting the app (`npm run dev`, `npm run build`, or `npm start`):
 
 - `MONGODB_URI` (or `MONGO_URL`)
-- `AUTH_SECRET` (or `NEXTAUTH_SECRET`) **required** for both startup validation and request-time session signing/verification (no development fallback is used)
+- `AUTH_SECRET` (or `NEXTAUTH_SECRET`) **required** for both startup validation and request-time session signing/verification (no development fallback is used; auth paths hard-fail if missing)
 - `CREDENTIALS_ENCRYPTION_KEY` (32-byte UTF-8 string, 64-char hex, or base64-encoded 32-byte value)
 - `OPENAI_API_KEY` when `AI_PROVIDER=openai` (default provider)
 
@@ -65,6 +65,8 @@ Migration utilities:
 3. Add required secrets and optional stage overrides
 4. (Optional) Run credential migration scripts if you have existing plaintext docs
 5. Start app: `npm run dev`
+
+If either auth secret variable is missing, startup validation throws and auth runtime code paths (`withAuth`, session token signing/validation) also throw; this is an intentional fail-closed behavior.
 
 ## 6) Deployment checklist
 

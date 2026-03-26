@@ -28,7 +28,7 @@ test('startup validation fails when auth secret env vars are missing', () => {
   );
 });
 
-test('withAuth returns safe 500 error when auth secret env vars are missing', async () => {
+test('withAuth throws when auth secret env vars are missing', async () => {
   process.env = {
     ...ORIGINAL_ENV,
     AUTH_SECRET: '',
@@ -42,10 +42,23 @@ test('withAuth returns safe 500 error when auth secret env vars are missing', as
     },
   });
 
-  const response = await protectedHandler(req);
-  assert.equal(response.status, 500);
+  await assert.rejects(
+    async () => protectedHandler(req),
+    /AUTH_SECRET \(or NEXTAUTH_SECRET\)/
+  );
+});
 
-  const body = await response.json();
-  assert.equal(body.success, false);
-  assert.equal(body.error_code, 'AUTH_CONFIGURATION_ERROR');
+test('createSessionToken throws when auth secret env vars are missing', async () => {
+  process.env = {
+    ...ORIGINAL_ENV,
+    AUTH_SECRET: '',
+    NEXTAUTH_SECRET: '',
+  };
+
+  const { createSessionToken } = await import('../lib/auth');
+
+  assert.throws(
+    () => createSessionToken('user-1', 'user@example.com'),
+    /AUTH_SECRET \(or NEXTAUTH_SECRET\)/
+  );
 });
