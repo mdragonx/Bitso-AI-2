@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { NextRequest } from 'next/server';
 
 import { createSessionToken } from '../lib/auth';
-import { POST } from '../app/api/agent/route';
+import { __resetAgentRouteTestDependencies, __setAgentRouteTestDependencies, POST } from '../app/api/agent/route';
 
 const ORIGINAL_ENV = { ...process.env };
 const ORIGINAL_FETCH = global.fetch;
@@ -22,6 +22,7 @@ function createRequest(body: Record<string, unknown>, cookie?: string) {
 test.afterEach(() => {
   process.env = { ...ORIGINAL_ENV };
   global.fetch = ORIGINAL_FETCH;
+  __resetAgentRouteTestDependencies();
 });
 
 test('unauthenticated request returns 401', async () => {
@@ -31,17 +32,15 @@ test('unauthenticated request returns 401', async () => {
 });
 
 test('authenticated request succeeds with session-derived user id', async () => {
-  process.env.AI_PROVIDER = 'local';
-  process.env.LOCAL_LLM_BASE_URL = 'http://localhost:9999';
-  process.env.LOCAL_LLM_MODEL = 'test-model';
-
-  global.fetch = (async () =>
-    new Response(
-      JSON.stringify({
-        choices: [{ message: { content: JSON.stringify({ signal: 'BUY', confidence: 80 }) } }],
-      }),
-      { status: 200 }
-    )) as typeof fetch;
+  const generatedInputs: Array<Record<string, unknown>> = [];
+  __setAgentRouteTestDependencies({
+    getAIProviderClient: () => ({
+      generateStructuredResponse: async (input: Record<string, unknown>) => {
+        generatedInputs.push(input);
+        return { status: 'success', result: { signal: 'BUY', confidence: 80 } };
+      },
+    }),
+  });
 
   const token = createSessionToken('server-user-123', 'test@example.com');
   const request = createRequest({ message: 'Analyze BTC', agent_id: 'agent-1' }, `bitso_session=${token}`);
@@ -50,6 +49,8 @@ test('authenticated request succeeds with session-derived user id', async () => 
   assert.equal(response.status, 200);
   const payload = await response.json();
   assert.equal(payload.success, true);
+  assert.equal(generatedInputs.length, 1);
+  assert.equal(generatedInputs[0].user_id, 'server-user-123');
 });
 
 test('spoofed user_id in payload is rejected', async () => {

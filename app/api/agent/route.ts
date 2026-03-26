@@ -314,8 +314,8 @@ async function postHandler(request: NextRequest) {
   try {
     const body = await request.json()
     const input = validatePayload(body)
-    const userId = getCurrentUserId(request) || null
-    const providerInput: AIRequestInput = { ...input, user_id: userId || undefined }
+    const userId = getCurrentUserId(request)
+    const providerInput: AIRequestInput = { ...input, user_id: userId }
     const baseLogContext = {
       correlation_id: correlation.correlationId,
       request_id: correlation.requestId,
