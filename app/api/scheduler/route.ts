@@ -68,15 +68,51 @@ function toNumber(value: string | null): number | undefined {
   return Number.isFinite(n) ? n : undefined
 }
 
-function providerError(result: SchedulerProviderResult<unknown>, fallbackStatus = 500) {
+function activeProviderName() {
+  const resolved = resolveSchedulerProviderName()
+  if (resolved === 'lyzr' && !process.env.LYZR_API_KEY) {
+    return 'local' as const
+  }
+  return resolved
+}
+
+function normalizeProviderError(action: string, result: SchedulerProviderResult<unknown>) {
+  const status = result.status || 500
+  const detailString = typeof result.details === 'string' ? result.details.toLowerCase() : JSON.stringify(result.details || {}).toLowerCase()
+  const errorString = String(result.error || '').toLowerCase()
+  const combined = `${errorString} ${detailString}`
+
+  if (status === 404) {
+    return { status: 404, code: 'SCHEDULE_NOT_FOUND', error: 'Schedule not found' }
+  }
+
+  if (action === 'pause' && combined.includes('already') && (combined.includes('paused') || combined.includes('inactive'))) {
+    return { status: 409, code: 'SCHEDULE_ALREADY_INACTIVE', error: 'Schedule is already paused' }
+  }
+
+  if (action === 'resume' && combined.includes('already') && combined.includes('active')) {
+    return { status: 409, code: 'SCHEDULE_ALREADY_ACTIVE', error: 'Schedule is already active' }
+  }
+
+  if (status >= 400 && status < 500) {
+    return { status, code: 'SCHEDULER_VALIDATION_ERROR', error: 'Invalid scheduler request' }
+  }
+
+  return { status, code: 'SCHEDULER_PROVIDER_ERROR', error: 'Scheduler provider request failed' }
+}
+
+function providerError(action: string, result: SchedulerProviderResult<unknown>, fallbackStatus = 500) {
+  const normalized = normalizeProviderError(action, result)
+
   return NextResponse.json(
     {
       success: false,
-      provider: resolveSchedulerProviderName(),
-      error: result.error || 'Server error',
+      provider: activeProviderName(),
+      code: normalized.code,
+      error: normalized.error,
       details: result.details,
     },
-    { status: result.status || fallbackStatus }
+    { status: normalized.status || fallbackStatus }
   )
 }
 
@@ -84,7 +120,7 @@ function normalizedSuccess(action: string, payload: Record<string, unknown>, sta
   return NextResponse.json(
     {
       success: true,
-      provider: resolveSchedulerProviderName(),
+      provider: activeProviderName(),
       action,
       ...payload,
     },
@@ -118,7 +154,7 @@ export async function GET(request: NextRequest) {
           return NextResponse.json({ success: false, error: 'scheduleId is required' }, { status: 400 })
         }
         const result = await provider.get(userId, scheduleId)
-        if (!result.success || !result.data) return providerError(result)
+        if (!result.success || !result.data) return providerError('get', result)
         return normalizedSuccess('get', result.data.schedule)
       }
 
@@ -127,7 +163,7 @@ export async function GET(request: NextRequest) {
           return NextResponse.json({ success: false, error: 'agentId is required' }, { status: 400 })
         }
         const result = await provider.byAgent(userId, agentId)
-        if (!result.success || !result.data) return providerError(result)
+        if (!result.success || !result.data) return providerError('by-agent', result)
         return normalizedSuccess('by-agent', result.data)
       }
 
@@ -141,7 +177,7 @@ export async function GET(request: NextRequest) {
           skip: toNumber(searchParams.get('skip')),
           limit: toNumber(searchParams.get('limit')),
         })
-        if (!result.success || !result.data) return providerError(result)
+        if (!result.success || !result.data) return providerError('logs', result)
         return normalizedSuccess('logs', result.data)
       }
 
@@ -155,7 +191,7 @@ export async function GET(request: NextRequest) {
           skip: toNumber(searchParams.get('skip')),
           limit: toNumber(searchParams.get('limit')),
         })
-        if (!result.success || !result.data) return providerError(result)
+        if (!result.success || !result.data) return providerError('recent', result)
         return normalizedSuccess('recent', result.data)
       }
 
@@ -168,7 +204,7 @@ export async function GET(request: NextRequest) {
           skip: toNumber(searchParams.get('skip')),
           limit: toNumber(searchParams.get('limit')),
         })
-        if (!result.success || !result.data) return providerError(result)
+        if (!result.success || !result.data) return providerError('list', result)
         return normalizedSuccess('list', result.data)
       }
     }
@@ -176,7 +212,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        provider: resolveSchedulerProviderName(),
+        provider: activeProviderName(),
+        code: 'SCHEDULER_INTERNAL_ERROR',
         error: error instanceof Error ? error.message : 'Server error',
       },
       { status: 500 }
@@ -208,7 +245,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, error: 'scheduleId is required' }, { status: 400 })
         }
         const result = await provider.trigger(userId, scheduleId)
-        if (!result.success || !result.data) return providerError(result)
+        if (!result.success || !result.data) return providerError('trigger', result)
         return normalizedSuccess('trigger', result.data, result.status || 200)
       }
 
@@ -217,7 +254,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, error: 'scheduleId is required' }, { status: 400 })
         }
         const result = await provider.pause(userId, scheduleId)
-        if (!result.success || !result.data) return providerError(result)
+        if (!result.success || !result.data) return providerError('pause', result)
         return normalizedSuccess('pause', result.data.schedule)
       }
 
@@ -226,7 +263,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, error: 'scheduleId is required' }, { status: 400 })
         }
         const result = await provider.resume(userId, scheduleId)
-        if (!result.success || !result.data) return providerError(result)
+        if (!result.success || !result.data) return providerError('resume', result)
         return normalizedSuccess('resume', result.data.schedule)
       }
 
@@ -248,7 +285,7 @@ export async function POST(request: NextRequest) {
           max_retries: params.max_retries,
           retry_delay: params.retry_delay,
         })
-        if (!result.success || !result.data) return providerError(result)
+        if (!result.success || !result.data) return providerError('create', result)
         return normalizedSuccess('create', result.data.schedule, result.status || 201)
       }
     }
@@ -256,7 +293,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        provider: resolveSchedulerProviderName(),
+        provider: activeProviderName(),
+        code: 'SCHEDULER_INTERNAL_ERROR',
         error: error instanceof Error ? error.message : 'Server error',
       },
       { status: 500 }
@@ -287,14 +325,15 @@ export async function DELETE(request: NextRequest) {
     }
 
     const result = await provider.delete(userId, scheduleId)
-    if (!result.success || !result.data) return providerError(result)
+    if (!result.success || !result.data) return providerError('delete', result)
 
     return normalizedSuccess('delete', result.data)
   } catch (error) {
     return NextResponse.json(
       {
         success: false,
-        provider: resolveSchedulerProviderName(),
+        provider: activeProviderName(),
+        code: 'SCHEDULER_INTERNAL_ERROR',
         error: error instanceof Error ? error.message : 'Server error',
       },
       { status: 500 }
