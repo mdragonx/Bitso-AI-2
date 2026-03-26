@@ -13,6 +13,8 @@ const BitsoCredentialSchema = new Schema(
   { timestamps: true, strict: false }
 );
 
+BitsoCredentialSchema.index({ owner_user_id: 1 });
+
 export default async function getBitsoCredentialModel() {
   await connectToDatabase();
   return models.BitsoCredential || model('BitsoCredential', BitsoCredentialSchema);

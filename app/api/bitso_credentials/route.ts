@@ -1,14 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUserId, withAuth } from '@/lib/auth';
-import { decryptSecret, encryptSecret, maskSecret, migratePlaintextBitsoSecrets } from '@/lib/cryptoSecrets';
+import {
+  assertCredentialsEncryptionKeyConfigured,
+  decryptSecret,
+  encryptSecret,
+  maskSecret,
+  migratePlaintextBitsoSecrets,
+} from '@/lib/cryptoSecrets';
 import getBitsoCredentialModel from '@/models/BitsoCredential';
 
 async function handler(req: NextRequest) {
   try {
-    await migratePlaintextBitsoSecrets();
+    assertCredentialsEncryptionKeyConfigured();
+
+    const userId = getCurrentUserId(req);
+    await migratePlaintextBitsoSecrets({ ownerUserIdForBackfill: userId });
 
     const Model = await getBitsoCredentialModel();
-    const userId = getCurrentUserId(req);
 
     if (req.method === 'GET') {
       const data = await Model.find({ owner_user_id: userId });
