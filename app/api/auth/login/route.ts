@@ -2,16 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import getUserModel from '@/models/User';
 import { applySessionCookie, createSessionToken, hashPassword, verifyPassword } from '@/lib/auth';
 import { migrateAndSeedCollections } from '@/lib/seed';
+import { loginRequestSchema } from '@/lib/contracts/apiContracts';
+import { parseOrThrow } from '@/lib/validation/trading';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const email = String(body?.email || '').trim().toLowerCase();
-    const password = String(body?.password || '');
-
-    if (!email || !password) {
-      return NextResponse.json({ success: false, error: 'email and password are required' }, { status: 400 });
-    }
+    const { email, password } = parseOrThrow(loginRequestSchema, body);
 
     const User = await getUserModel();
     const user = await User.findOne({ email });
@@ -49,6 +46,7 @@ export async function POST(req: NextRequest) {
     applySessionCookie(res, createSessionToken(String(user._id), user.email));
     return res;
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error?.message || 'Server error' }, { status: 500 });
+    const status = error?.message?.includes('Validation failed') ? 400 : 500;
+    return NextResponse.json({ success: false, error: error?.message || 'Server error' }, { status });
   }
 }

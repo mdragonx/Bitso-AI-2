@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { getCurrentUserId, withAuth } from '@/lib/auth';
 import {
   createTradeSignalForUser,
@@ -6,6 +7,15 @@ import {
   getTradeSignalsForUser,
   updateTradeSignalForUser,
 } from '@/lib/services/tradingDataService';
+import { createTradeSignalSchema, parseOrThrow, updateTradeSignalSchema } from '@/lib/validation/trading';
+
+const updateTradeSignalRequestSchema = z.object({
+  id: z.string().min(1),
+}).and(updateTradeSignalSchema);
+
+const deleteTradeSignalQuerySchema = z.object({
+  id: z.string().min(1),
+});
 
 async function handler(req: NextRequest) {
   try {
@@ -18,22 +28,21 @@ async function handler(req: NextRequest) {
 
     if (req.method === 'POST') {
       const body = await req.json();
-      const doc = await createTradeSignalForUser(userId, body);
+      const payload = parseOrThrow(createTradeSignalSchema, body);
+      const doc = await createTradeSignalForUser(userId, payload);
       return NextResponse.json({ success: true, data: doc });
     }
 
     if (req.method === 'PUT') {
       const body = await req.json();
-      const { id, ...updates } = body;
-      if (!id) return NextResponse.json({ success: false, error: 'id is required' }, { status: 400 });
+      const { id, ...updates } = parseOrThrow(updateTradeSignalRequestSchema, body);
       const doc = await updateTradeSignalForUser(userId, id, updates);
       return NextResponse.json({ success: true, data: doc });
     }
 
     if (req.method === 'DELETE') {
       const { searchParams } = new URL(req.url);
-      const id = searchParams.get('id');
-      if (!id) return NextResponse.json({ success: false, error: 'id is required' }, { status: 400 });
+      const { id } = parseOrThrow(deleteTradeSignalQuerySchema, Object.fromEntries(searchParams.entries()));
       await deleteTradeSignalForUser(userId, id);
       return NextResponse.json({ success: true, data: { deleted: true } });
     }

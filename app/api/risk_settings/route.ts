@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { getCurrentUserId, withAuth } from '@/lib/auth';
 import { createRiskSettingsForUser, getRiskSettingsForUser, updateRiskSettingsForUser } from '@/lib/services/tradingDataService';
+import { createRiskSettingsSchema, parseOrThrow, updateRiskSettingsSchema } from '@/lib/validation/trading';
+
+const updateRiskSettingsRequestSchema = z.object({
+  id: z.string().min(1),
+}).and(updateRiskSettingsSchema);
 
 async function handler(req: NextRequest) {
   try {
@@ -13,14 +19,14 @@ async function handler(req: NextRequest) {
 
     if (req.method === 'POST') {
       const body = await req.json();
-      const doc = await createRiskSettingsForUser(userId, body);
+      const payload = parseOrThrow(createRiskSettingsSchema, body);
+      const doc = await createRiskSettingsForUser(userId, payload);
       return NextResponse.json({ success: true, data: doc });
     }
 
     if (req.method === 'PUT') {
       const body = await req.json();
-      const { id, ...updates } = body;
-      if (!id) return NextResponse.json({ success: false, error: 'id is required' }, { status: 400 });
+      const { id, ...updates } = parseOrThrow(updateRiskSettingsRequestSchema, body);
       const doc = await updateRiskSettingsForUser(userId, id, updates);
       return NextResponse.json({ success: true, data: doc });
     }
