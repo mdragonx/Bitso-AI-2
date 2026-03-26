@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { getBitsoBaseUrl } from '@/lib/config/runtime';
 
 export type BitsoBalance = {
   currency: string;
@@ -41,8 +42,9 @@ async function requestBitso<T>(params: {
 }): Promise<{ status: number; data: BitsoAdapterResponse<T> }> {
   const bodyString = params.body ? JSON.stringify(params.body) : '';
   const authHeader = createBitsoAuthHeader(params.apiKey, params.apiSecret, params.method, params.path, bodyString);
+  const baseUrl = getBitsoBaseUrl();
 
-  const response = await fetch(`https://bitso.com${params.path}`, {
+  const response = await fetch(`${baseUrl}${params.path}`, {
     method: params.method,
     headers: {
       Authorization: authHeader,
@@ -72,7 +74,8 @@ export async function fetchBitsoBalances(apiKey: string, apiSecret: string) {
 }
 
 export async function fetchBitsoTickerLast(book: string) {
-  const response = await fetch(`https://bitso.com/api/v3/ticker/?book=${book}`);
+  const baseUrl = getBitsoBaseUrl();
+  const response = await fetch(`${baseUrl}/api/v3/ticker/?book=${book}`);
   const data = await response.json();
   const last = data?.payload?.last;
   return typeof last === 'string' ? last : '';

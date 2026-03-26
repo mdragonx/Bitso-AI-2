@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUserId, withAuth } from '@/lib/auth';
+import { getBitsoBaseUrl } from '@/lib/config/runtime';
 
 async function handler(req: NextRequest) {
   try {
@@ -7,7 +8,7 @@ async function handler(req: NextRequest) {
     const book = searchParams.get('book') || 'btc_mxn';
 
     // Ticker is a public endpoint - no auth needed
-    const response = await fetch(`https://bitso.com/api/v3/ticker/?book=${book}`, {
+    const response = await fetch(`${getBitsoBaseUrl()}/api/v3/ticker/?book=${book}`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUserId, withAuth } from '@/lib/auth';
 import {
   assertCredentialsEncryptionKeyConfigured,
-  decryptSecret,
+  decryptBitsoCredentialPair,
   encryptSecret,
   maskSecret,
   migratePlaintextBitsoSecrets,
@@ -23,14 +23,15 @@ async function handler(req: NextRequest) {
       const masked = Array.isArray(data)
         ? data.map((d: any) => {
             const obj = d.toObject ? d.toObject() : { ...d };
-            const decrypted = decryptSecret({
-              ciphertext: obj.encrypted_api_secret_ciphertext,
-              iv: obj.encrypted_api_secret_iv,
-              tag: obj.encrypted_api_secret_tag,
-            });
+            const decrypted = decryptBitsoCredentialPair(obj);
 
-            obj.api_secret_masked = maskSecret(decrypted);
+            obj.api_key_masked = maskSecret(decrypted.apiKey);
+            obj.api_secret_masked = maskSecret(decrypted.apiSecret);
             delete obj.api_secret;
+            delete obj.api_key;
+            delete obj.encrypted_api_key_ciphertext;
+            delete obj.encrypted_api_key_iv;
+            delete obj.encrypted_api_key_tag;
             delete obj.encrypted_api_secret_ciphertext;
             delete obj.encrypted_api_secret_iv;
             delete obj.encrypted_api_secret_tag;
@@ -47,12 +48,15 @@ async function handler(req: NextRequest) {
       }
 
       await Model.deleteMany({ owner_user_id: userId });
-      const encrypted = encryptSecret(body.api_secret);
+      const encryptedApiSecret = encryptSecret(body.api_secret);
+      const encryptedApiKey = encryptSecret(body.api_key);
       const doc = await Model.create({
-        api_key: body.api_key,
-        encrypted_api_secret_ciphertext: encrypted.ciphertext,
-        encrypted_api_secret_iv: encrypted.iv,
-        encrypted_api_secret_tag: encrypted.tag,
+        encrypted_api_key_ciphertext: encryptedApiKey.ciphertext,
+        encrypted_api_key_iv: encryptedApiKey.iv,
+        encrypted_api_key_tag: encryptedApiKey.tag,
+        encrypted_api_secret_ciphertext: encryptedApiSecret.ciphertext,
+        encrypted_api_secret_iv: encryptedApiSecret.iv,
+        encrypted_api_secret_tag: encryptedApiSecret.tag,
         is_active: true,
         owner_user_id: userId,
       });
@@ -61,7 +65,7 @@ async function handler(req: NextRequest) {
         success: true,
         data: {
           _id: doc._id,
-          api_key: doc.api_key,
+          api_key_masked: maskSecret(body.api_key),
           api_secret_masked: maskSecret(body.api_secret),
           is_active: doc.is_active,
         },

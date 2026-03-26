@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { getCurrentUserId, withAuth } from '@/lib/auth';
-import { decryptSecret, migratePlaintextBitsoSecrets } from '@/lib/cryptoSecrets';
+import { decryptBitsoCredentialPair, migratePlaintextBitsoSecrets } from '@/lib/cryptoSecrets';
 import { persistRejectedTradeAttempt, validateExecutionRiskRules } from '@/lib/services/riskValidationService';
 import getBitsoCredentialModel from '@/models/BitsoCredential';
 import getTradeModel from '@/models/Trade';
+import { getBitsoBaseUrl, runtimeConfig } from '@/lib/config/runtime';
 
 function createBitsoAuthHeader(apiKey: string, apiSecret: string, method: string, path: string, body: string = '') {
   const nonce = Date.now().toString();
@@ -41,12 +42,7 @@ async function handler(req: NextRequest) {
     }
 
     const credential = creds[0];
-    const apiKey = credential.api_key;
-    const apiSecret = decryptSecret({
-      ciphertext: credential.encrypted_api_secret_ciphertext,
-      iv: credential.encrypted_api_secret_iv,
-      tag: credential.encrypted_api_secret_tag,
-    });
+    const { apiKey, apiSecret } = decryptBitsoCredentialPair(credential.toObject ? credential.toObject() : credential);
 
     const body = await req.json();
     const { book, side, type = 'market', major, minor, price, idempotency_key } = body;
@@ -117,9 +113,20 @@ async function handler(req: NextRequest) {
 
     const path = '/api/v3/orders/';
     const bodyStr = JSON.stringify(orderPayload);
+    if (runtimeConfig.tradingMode === 'paper') {
+      return NextResponse.json({
+        success: true,
+        data: {
+          oid: `paper-${idempotency_key || Date.now()}`,
+          ...orderPayload,
+          execution_mode: 'paper',
+        },
+      });
+    }
+
     const authHeader = createBitsoAuthHeader(apiKey, apiSecret, 'POST', path, bodyStr);
 
-    const response = await fetch('https://bitso.com/api/v3/orders/', {
+    const response = await fetch(`${getBitsoBaseUrl()}/api/v3/orders/`, {
       method: 'POST',
       headers: {
         Authorization: authHeader,

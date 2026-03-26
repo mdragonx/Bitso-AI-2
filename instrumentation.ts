@@ -1,4 +1,5 @@
 import { startSchedulerWorker } from '@/lib/scheduler/worker'
+import { validateRuntimeConfigAtStartup } from '@/lib/config/runtime'
 
 let initialized = false
 
@@ -9,6 +10,8 @@ export async function register() {
   if (process.env.NEXT_RUNTIME && process.env.NEXT_RUNTIME !== 'nodejs') {
     return
   }
+
+  validateRuntimeConfigAtStartup()
 
   if (process.env.ENABLE_SCHEDULER_WORKER?.toLowerCase() !== 'true') {
     return

@@ -79,8 +79,16 @@ async function main() {
   }
 
   const filter = {
-    api_secret: { $exists: true, $ne: '' },
-    encrypted_api_secret_ciphertext: { $in: [null, ''] },
+    $or: [
+      {
+        api_secret: { $exists: true, $ne: '' },
+        encrypted_api_secret_ciphertext: { $in: [null, ''] },
+      },
+      {
+        api_key: { $exists: true, $ne: '' },
+        encrypted_api_key_ciphertext: { $in: [null, ''] },
+      },
+    ],
   };
 
   let totalScanned = 0;
@@ -88,14 +96,15 @@ async function main() {
   let skippedOrFailed = 0;
 
   const cursor = collection.find(filter, {
-    projection: { _id: 1, api_secret: 1 },
+    projection: { _id: 1, api_key: 1, api_secret: 1 },
   });
 
   for await (const doc of cursor) {
     totalScanned += 1;
-    const plaintext = typeof doc.api_secret === 'string' ? doc.api_secret : '';
+    const plaintextSecret = typeof doc.api_secret === 'string' ? doc.api_secret : '';
+    const plaintextKey = typeof doc.api_key === 'string' ? doc.api_key : '';
 
-    if (!plaintext) {
+    if (!plaintextSecret && !plaintextKey) {
       skippedOrFailed += 1;
       continue;
     }
@@ -106,16 +115,31 @@ async function main() {
     }
 
     try {
-      const encrypted = encryptSecret(plaintext, encryptionKey);
+      const encryptedSecret = plaintextSecret ? encryptSecret(plaintextSecret, encryptionKey) : null;
+      const encryptedKey = plaintextKey ? encryptSecret(plaintextKey, encryptionKey) : null;
       const result = await collection.updateOne(
         { _id: doc._id },
         {
           $set: {
-            encrypted_api_secret_ciphertext: encrypted.ciphertext,
-            encrypted_api_secret_iv: encrypted.iv,
-            encrypted_api_secret_tag: encrypted.tag,
+            ...(encryptedSecret
+              ? {
+                  encrypted_api_secret_ciphertext: encryptedSecret.ciphertext,
+                  encrypted_api_secret_iv: encryptedSecret.iv,
+                  encrypted_api_secret_tag: encryptedSecret.tag,
+                }
+              : {}),
+            ...(encryptedKey
+              ? {
+                  encrypted_api_key_ciphertext: encryptedKey.ciphertext,
+                  encrypted_api_key_iv: encryptedKey.iv,
+                  encrypted_api_key_tag: encryptedKey.tag,
+                }
+              : {}),
           },
-          $unset: { api_secret: '' },
+          $unset: {
+            ...(plaintextSecret ? { api_secret: '' } : {}),
+            ...(plaintextKey ? { api_key: '' } : {}),
+          },
         }
       );
 
