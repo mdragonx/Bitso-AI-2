@@ -6,7 +6,9 @@
     "dev": "next dev --turbo -p 3333",
     "build": "next build",
     "start": "next start -p 3333",
-    "lint": "next lint"
+    "lint": "next lint",
+    "migrate:passwords:dry-run": "node scripts/migrate-user-passwords.mjs --dry-run",
+    "migrate:passwords": "node scripts/migrate-user-passwords.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

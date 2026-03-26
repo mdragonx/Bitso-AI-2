@@ -7,7 +7,7 @@ const UserSchema = new Schema(
     password_hash: { type: String, required: true },
     name: { type: String, default: '' },
   },
-  { timestamps: true }
+  { collection: 'users', timestamps: true }
 );
 
 export default async function getUserModel() {

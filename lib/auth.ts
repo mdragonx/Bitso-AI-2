@@ -1,5 +1,8 @@
-import { createHmac, pbkdf2Sync, randomBytes, timingSafeEqual } from 'crypto';
+import { createHmac } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
+import { hashPassword, verifyPassword } from '@/lib/passwordHash.mjs';
+
+export { hashPassword, verifyPassword };
 
 const AUTH_COOKIE_NAME = 'bitso_session';
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
@@ -25,19 +28,6 @@ function base64UrlDecode(input: string) {
   return Buffer.from(normalized + (pad ? '='.repeat(4 - pad) : ''), 'base64').toString('utf8');
 }
 
-export function hashPassword(password: string) {
-  const salt = randomBytes(16).toString('hex');
-  const hash = pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
-  return `${salt}:${hash}`;
-}
-
-export function verifyPassword(password: string, stored: string) {
-  const [salt, hash] = stored.split(':');
-  if (!salt || !hash) return false;
-  const candidate = pbkdf2Sync(password, salt, 100000, 64, 'sha512');
-  const original = Buffer.from(hash, 'hex');
-  return candidate.length === original.length && timingSafeEqual(candidate, original);
-}
 
 function sign(data: string) {
   return createHmac('sha256', SECRET).update(data).digest('hex');
