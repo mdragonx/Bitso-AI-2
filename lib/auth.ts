@@ -98,24 +98,7 @@ export function getCurrentUserId(req: NextRequest) {
 
 export function withAuth(handler: (req: NextRequest) => Promise<NextResponse>) {
   return async (req: NextRequest) => {
-    let validation: SessionValidationResult;
-
-    try {
-      validation = getSessionValidationFromRequest(req);
-    } catch {
-      recordAuthAnomaly({
-        reason: 'AUTH_SECRET_MISSING',
-        correlationId: req.headers.get('x-correlation-id') || undefined,
-      });
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Authentication is temporarily unavailable due to server configuration.',
-          error_code: 'AUTH_CONFIGURATION_ERROR',
-        },
-        { status: 500 }
-      );
-    }
+    const validation = getSessionValidationFromRequest(req);
 
     if (!validation.session) {
       recordAuthAnomaly({ reason: validation.errorCode, correlationId: req.headers.get('x-correlation-id') || undefined });
