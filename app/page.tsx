@@ -82,6 +82,10 @@ function LoginForm({ onSwitchToRegister }: { onSwitchToRegister: () => void }) {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email.trim() || !password.trim()) {
+      setError('Email and password are required.');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
@@ -123,6 +127,14 @@ function RegisterForm({ onSwitchToLogin }: { onSwitchToLogin: () => void }) {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email.trim() || !password.trim()) {
+      setError('Email and password are required.');
+      return;
+    }
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters.');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
@@ -180,7 +192,13 @@ function ProtectedRoute({ unauthenticatedFallback, children }: { unauthenticated
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return null;
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
+        <div className="text-sm text-muted-foreground">Checking authentication...</div>
+      </div>
+    );
+  }
   return authenticated ? <>{children}</> : <>{unauthenticatedFallback}</>;
 }
 
@@ -284,6 +302,7 @@ export default function Page() {
   const [recentSignals, setRecentSignals] = useState<any[]>([]);
   const [trades, setTrades] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
 
   const [balances, setBalances] = useState<any[]>([]);
   const [ticker, setTicker] = useState<any>(null);
@@ -306,8 +325,11 @@ export default function Page() {
       const json = await apiFetchJson<any>('/api/trades');
       if (json.success && Array.isArray(json.data)) {
         setTrades(json.data.reverse());
+        setHistoryError('');
       }
-    } catch { /* silent */ }
+    } catch {
+      setHistoryError('Failed to load trade history.');
+    }
   }, []);
 
   const loadRiskSettings = useCallback(async () => {
@@ -626,7 +648,8 @@ Approved market context sources were unavailable for this run.`;
   useEffect(() => {
     if (activeScreen === 'history') {
       setHistoryLoading(true);
-      Promise.all([fetchSignals(), fetchTrades()]).finally(() => setHistoryLoading(false));
+      Promise.all([fetchSignals(), fetchTrades()])
+        .finally(() => setHistoryLoading(false));
     }
   }, [activeScreen, fetchSignals, fetchTrades]);
 
@@ -678,6 +701,7 @@ Approved market context sources were unavailable for this run.`;
                     feeTier={feeTier}
                     behavioralPosition={behavioralPosition}
                     riskViolation={riskViolation}
+                    recentTrades={trades}
                   />
                 )}
                 {activeScreen === 'history' && (
@@ -686,6 +710,7 @@ Approved market context sources were unavailable for this run.`;
                     signals={recentSignals}
                     loading={historyLoading}
                     showSample={showSample}
+                    error={historyError}
                   />
                 )}
                 {activeScreen === 'risk' && (
