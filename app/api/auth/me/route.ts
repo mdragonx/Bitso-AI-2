@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionFromRequest } from '@/lib/auth';
-import getUserModel from '@/models/User';
+import { findUserById } from '@/lib/repositories/userRepository';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,8 +11,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    const User = await getUserModel();
-    const user = await User.findById(session.userId).select('_id email name');
+    const user = await findUserById(session.userId);
 
     if (!user) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });

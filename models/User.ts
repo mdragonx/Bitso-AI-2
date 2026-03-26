@@ -10,6 +10,9 @@ const UserSchema = new Schema(
   { collection: 'users', timestamps: true }
 );
 
+UserSchema.index({ email: 1 }, { unique: true });
+UserSchema.index({ createdAt: -1 });
+
 export default async function getUserModel() {
   await connectToDatabase();
   return models.User || model('User', UserSchema);
