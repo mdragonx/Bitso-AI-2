@@ -42,24 +42,69 @@
   },
   "database": {
     "db_name": "app_trade-scout-mega-forge-j4hi",
-    "collections": ["trade_signals", "trades", "risk_settings"],
+    "collections": [
+      "trade_signals",
+      "trades",
+      "risk_settings",
+      "scheduler_schedules",
+      "bitso_credentials"
+    ],
     "provisioned": true
   },
   "workflow": {
     "nodes": [
-      {"id": "input_node", "type": "Input", "label": "Trading Pair & OHLC Data"},
-      {"id": "manager_agent", "type": "Agent", "label": "Market Analysis Coordinator"},
-      {"id": "tech_analysis_agent", "type": "Agent", "label": "Technical Analysis Agent"},
-      {"id": "market_research_agent", "type": "Agent", "label": "Market Research Agent"},
-      {"id": "trade_exec_agent", "type": "Agent", "label": "Trade Execution Agent"},
-      {"id": "output_node", "type": "Output", "label": "Trade Result"}
+      {
+        "id": "input_node",
+        "type": "Input",
+        "label": "Trading Pair & OHLC Data"
+      },
+      {
+        "id": "manager_agent",
+        "type": "Agent",
+        "label": "Market Analysis Coordinator"
+      },
+      {
+        "id": "tech_analysis_agent",
+        "type": "Agent",
+        "label": "Technical Analysis Agent"
+      },
+      {
+        "id": "market_research_agent",
+        "type": "Agent",
+        "label": "Market Research Agent"
+      },
+      {
+        "id": "trade_exec_agent",
+        "type": "Agent",
+        "label": "Trade Execution Agent"
+      },
+      {
+        "id": "output_node",
+        "type": "Output",
+        "label": "Trade Result"
+      }
     ],
     "edges": [
-      {"source": "input_node", "target": "manager_agent"},
-      {"source": "manager_agent", "target": "tech_analysis_agent"},
-      {"source": "manager_agent", "target": "market_research_agent"},
-      {"source": "manager_agent", "target": "trade_exec_agent"},
-      {"source": "trade_exec_agent", "target": "output_node"}
+      {
+        "source": "input_node",
+        "target": "manager_agent"
+      },
+      {
+        "source": "manager_agent",
+        "target": "tech_analysis_agent"
+      },
+      {
+        "source": "manager_agent",
+        "target": "market_research_agent"
+      },
+      {
+        "source": "manager_agent",
+        "target": "trade_exec_agent"
+      },
+      {
+        "source": "trade_exec_agent",
+        "target": "output_node"
+      }
     ]
   }
 }
