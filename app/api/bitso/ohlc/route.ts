@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUserId, withAuth } from '@/lib/auth';
+import { getBitsoBaseUrl } from '@/lib/config/runtime';
 
 async function handler(req: NextRequest) {
   try {
@@ -8,7 +9,7 @@ async function handler(req: NextRequest) {
     const timeframe = searchParams.get('timeframe') || '1hour';
 
     // Trades/OHLC - public endpoint
-    const response = await fetch(`https://bitso.com/api/v3/ohlc/?book=${book}&time_bucket=${timeframe}`, {
+    const response = await fetch(`${getBitsoBaseUrl()}/api/v3/ohlc/?book=${book}&time_bucket=${timeframe}`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });

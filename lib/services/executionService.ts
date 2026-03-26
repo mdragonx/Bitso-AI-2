@@ -1,9 +1,10 @@
 import crypto from 'crypto';
 import getBitsoCredentialModel from '@/models/BitsoCredential';
 import getTradeModel from '@/models/Trade';
-import { decryptSecret, migratePlaintextBitsoSecrets } from '@/lib/cryptoSecrets';
+import { decryptBitsoCredentialPair, migratePlaintextBitsoSecrets } from '@/lib/cryptoSecrets';
 import { fetchBitsoBalances, submitBitsoOrder } from '@/lib/adapters/bitsoApiAdapter';
 import { persistRejectedTradeAttempt, validateExecutionRiskRules } from '@/lib/services/riskValidationService';
+import { runtimeConfig } from '@/lib/config/runtime';
 
 export type ExecuteRecommendationInput = {
   recommendation: {
@@ -191,11 +192,7 @@ export async function executeApprovedRecommendation(ownerUserId: string, input: 
     throw new Error('No Bitso API credentials configured.');
   }
 
-  const apiSecret = decryptSecret({
-    ciphertext: credential.encrypted_api_secret_ciphertext,
-    iv: credential.encrypted_api_secret_iv,
-    tag: credential.encrypted_api_secret_tag,
-  });
+  const { apiKey, apiSecret } = decryptBitsoCredentialPair(credential.toObject ? credential.toObject() : credential);
 
   const TradeModel = await getTradeModel();
   const existing = await TradeModel.findOne({ owner_user_id: ownerUserId, idempotency_key: idempotencyKey });
@@ -280,7 +277,7 @@ export async function executeApprovedRecommendation(ownerUserId: string, input: 
   }
 
   const balanceCheck = await validateBalanceOnly({
-    apiKey: credential.api_key,
+    apiKey,
     apiSecret,
     book: normalizedBook,
     side,
@@ -318,8 +315,36 @@ export async function executeApprovedRecommendation(ownerUserId: string, input: 
   tradeDoc.risk_check_details = 'Risk and balance checks passed. Order submitted to Bitso.';
   await tradeDoc.save();
 
+  if (runtimeConfig.tradingMode === 'paper') {
+    tradeDoc.status = 'filled';
+    tradeDoc.result_status = 'filled';
+    tradeDoc.bitso_order_id = `paper-${idempotencyKey}`;
+    tradeDoc.order_ids = {
+      ...(tradeDoc.order_ids || {}),
+      bitso_order_id: tradeDoc.bitso_order_id,
+    };
+    tradeDoc.risk_check_details =
+      `Paper trading mode active for ${runtimeConfig.stage}. No live order was sent to Bitso.`;
+    await tradeDoc.save();
+
+    return {
+      success: true,
+      idempotency_key: idempotencyKey,
+      data: {
+        oid: tradeDoc.bitso_order_id,
+        book: normalizedBook,
+        side,
+        price: tradeDoc.price,
+        major: tradeDoc.amount,
+        minor: tradeDoc.total_value,
+        execution_mode: 'paper',
+      },
+      trade: tradeDoc,
+    };
+  }
+
   const orderResult = await submitOrderWithRetry({
-    apiKey: credential.api_key,
+    apiKey,
     apiSecret,
     orderPayload,
     idempotencyKey,

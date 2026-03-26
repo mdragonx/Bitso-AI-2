@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUserId, withAuth } from '@/lib/auth';
 import getBitsoCredentialModel from '@/models/BitsoCredential';
-import { decryptSecret, migratePlaintextBitsoSecrets } from '@/lib/cryptoSecrets';
+import { decryptBitsoCredentialPair, migratePlaintextBitsoSecrets } from '@/lib/cryptoSecrets';
 import crypto from 'crypto';
+import { getBitsoBaseUrl } from '@/lib/config/runtime';
 
 function createBitsoAuthHeader(apiKey: string, apiSecret: string, method: string, path: string, body: string = '') {
   const nonce = Date.now().toString();
@@ -29,17 +30,12 @@ async function handler(req: NextRequest) {
     const creds = await Model.find({ owner_user_id: getCurrentUserId(req) });
 
     if (Array.isArray(creds) && creds.length > 0) {
-      const apiKey = creds[0].api_key;
-      const apiSecret = decryptSecret({
-        ciphertext: creds[0].encrypted_api_secret_ciphertext,
-        iv: creds[0].encrypted_api_secret_iv,
-        tag: creds[0].encrypted_api_secret_tag,
-      });
+      const { apiKey, apiSecret } = decryptBitsoCredentialPair(creds[0].toObject ? creds[0].toObject() : creds[0]);
       const path = '/api/v3/fees/';
       const authHeader = createBitsoAuthHeader(apiKey, apiSecret, 'GET', path);
 
       try {
-        const response = await fetch('https://bitso.com/api/v3/fees/', {
+        const response = await fetch(`${getBitsoBaseUrl()}/api/v3/fees/`, {
           method: 'GET',
           headers: {
             'Authorization': authHeader,

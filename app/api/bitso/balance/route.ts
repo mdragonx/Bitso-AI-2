@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUserId, withAuth } from '@/lib/auth';
 import getBitsoCredentialModel from '@/models/BitsoCredential';
-import { decryptSecret, migratePlaintextBitsoSecrets } from '@/lib/cryptoSecrets';
+import { decryptBitsoCredentialPair, migratePlaintextBitsoSecrets } from '@/lib/cryptoSecrets';
 import crypto from 'crypto';
+import { getBitsoBaseUrl } from '@/lib/config/runtime';
 
 function createBitsoAuthHeader(apiKey: string, apiSecret: string, method: string, path: string, body: string = '') {
   const nonce = Date.now().toString();
@@ -22,12 +23,7 @@ async function handler(req: NextRequest) {
     }
 
     const credential = creds[0];
-    const apiKey = credential.api_key;
-    const apiSecret = decryptSecret({
-      ciphertext: credential.encrypted_api_secret_ciphertext,
-      iv: credential.encrypted_api_secret_iv,
-      tag: credential.encrypted_api_secret_tag,
-    });
+    const { apiKey, apiSecret } = decryptBitsoCredentialPair(credential.toObject ? credential.toObject() : credential);
 
     if (!apiKey || !apiSecret) {
       return NextResponse.json({ success: false, error: 'Invalid Bitso credentials' }, { status: 400 });
@@ -36,7 +32,7 @@ async function handler(req: NextRequest) {
     const path = '/api/v3/balance/';
     const authHeader = createBitsoAuthHeader(apiKey, apiSecret, 'GET', path);
 
-    const response = await fetch('https://bitso.com/api/v3/balance/', {
+    const response = await fetch(`${getBitsoBaseUrl()}/api/v3/balance/`, {
       method: 'GET',
       headers: {
         'Authorization': authHeader,

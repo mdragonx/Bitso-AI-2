@@ -14,20 +14,22 @@ async function main() {
   await mongoose.connect(uri, { bufferCommands: false });
 
   const collection = mongoose.connection.db.collection('bitsocredentials');
-  const plaintextFilter = { api_secret: { $exists: true, $ne: '' } };
+  const plaintextFilter = {
+    $or: [{ api_secret: { $exists: true, $ne: '' } }, { api_key: { $exists: true, $ne: '' } }],
+  };
 
   const remainingPlaintextCount = await collection.countDocuments(plaintextFilter);
 
-  console.log(`[bitso-credentials-integrity] plaintext_api_secret_docs=${remainingPlaintextCount}`);
+  console.log(`[bitso-credentials-integrity] plaintext_bitso_credential_docs=${remainingPlaintextCount}`);
 
   await mongoose.disconnect();
 
   if (remainingPlaintextCount > 0) {
-    console.error('[bitso-credentials-integrity] failed: documents still contain plaintext api_secret');
+    console.error('[bitso-credentials-integrity] failed: documents still contain plaintext api credentials');
     process.exit(1);
   }
 
-  console.log('[bitso-credentials-integrity] pass: no plaintext api_secret found');
+  console.log('[bitso-credentials-integrity] pass: no plaintext api credentials found');
 }
 
 main().catch(async (error) => {

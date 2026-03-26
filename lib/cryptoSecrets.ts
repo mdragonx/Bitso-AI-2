@@ -7,6 +7,11 @@ type EncryptedSecret = {
   tag: string;
 };
 
+type EncryptedBitsoCredentialPair = {
+  apiKey: string;
+  apiSecret: string;
+};
+
 type MigratePlaintextBitsoSecretsOptions = {
   ownerUserIdForBackfill?: string;
   dryRun?: boolean;
@@ -91,6 +96,27 @@ export function maskSecret(secret: string): string {
   return `****${secret.slice(-4)}`;
 }
 
+export function decryptBitsoCredentialPair(credential: Record<string, unknown>): EncryptedBitsoCredentialPair {
+  const encryptedApiKeyCiphertext = String(credential.encrypted_api_key_ciphertext || '');
+  const encryptedApiKeyIv = String(credential.encrypted_api_key_iv || '');
+  const encryptedApiKeyTag = String(credential.encrypted_api_key_tag || '');
+  const apiKey = encryptedApiKeyCiphertext && encryptedApiKeyIv && encryptedApiKeyTag
+    ? decryptSecret({
+        ciphertext: encryptedApiKeyCiphertext,
+        iv: encryptedApiKeyIv,
+        tag: encryptedApiKeyTag,
+      })
+    : String(credential.api_key || '');
+
+  const apiSecret = decryptSecret({
+    ciphertext: String(credential.encrypted_api_secret_ciphertext || ''),
+    iv: String(credential.encrypted_api_secret_iv || ''),
+    tag: String(credential.encrypted_api_secret_tag || ''),
+  });
+
+  return { apiKey, apiSecret };
+}
+
 export async function migratePlaintextBitsoSecrets(
   options: MigratePlaintextBitsoSecretsOptions = {}
 ): Promise<MigratePlaintextBitsoSecretsReport> {
@@ -112,16 +138,25 @@ export async function migratePlaintextBitsoSecrets(
     }
 
     const docs = await Model.find({
-      api_secret: { $exists: true, $ne: '' },
-      encrypted_api_secret_ciphertext: { $in: [null, ''] },
-    }).select('_id api_secret owner_user_id');
+      $or: [
+        {
+          api_secret: { $exists: true, $ne: '' },
+          encrypted_api_secret_ciphertext: { $in: [null, ''] },
+        },
+        {
+          api_key: { $exists: true, $ne: '' },
+          encrypted_api_key_ciphertext: { $in: [null, ''] },
+        },
+      ],
+    }).select('_id api_key api_secret owner_user_id');
 
     let migrated = 0;
     let skippedOrFailed = 0;
 
     for (const doc of docs as any[]) {
-      const plaintext = String(doc.api_secret || '');
-      if (!plaintext) {
+      const plaintextSecret = String(doc.api_secret || '');
+      const plaintextKey = String(doc.api_key || '');
+      if (!plaintextSecret && !plaintextKey) {
         skippedOrFailed += 1;
         continue;
       }
@@ -132,17 +167,30 @@ export async function migratePlaintextBitsoSecrets(
       }
 
       try {
-        const encrypted = encryptSecret(plaintext);
+        const encryptedSecret = plaintextSecret ? encryptSecret(plaintextSecret) : null;
+        const encryptedKey = plaintextKey ? encryptSecret(plaintextKey) : null;
         const result = await Model.updateOne(
           { _id: doc._id },
           {
             $set: {
-              encrypted_api_secret_ciphertext: encrypted.ciphertext,
-              encrypted_api_secret_iv: encrypted.iv,
-              encrypted_api_secret_tag: encrypted.tag,
+              ...(encryptedSecret
+                ? {
+                    encrypted_api_secret_ciphertext: encryptedSecret.ciphertext,
+                    encrypted_api_secret_iv: encryptedSecret.iv,
+                    encrypted_api_secret_tag: encryptedSecret.tag,
+                  }
+                : {}),
+              ...(encryptedKey
+                ? {
+                    encrypted_api_key_ciphertext: encryptedKey.ciphertext,
+                    encrypted_api_key_iv: encryptedKey.iv,
+                    encrypted_api_key_tag: encryptedKey.tag,
+                  }
+                : {}),
             },
             $unset: {
-              api_secret: 1,
+              ...(plaintextSecret ? { api_secret: 1 } : {}),
+              ...(plaintextKey ? { api_key: 1 } : {}),
             },
           }
         );

@@ -37,7 +37,7 @@ export default function ApiSettingsSection({ onCredentialsSaved }: ApiSettingsPr
       if (json.success && Array.isArray(json.data) && json.data.length > 0) {
         const cred = json.data[0];
         setHasCredentials(true);
-        setSavedKey(cred.api_key || '');
+        setSavedKey(cred.api_key_masked || cred.api_key || '');
         setMaskedSecret(cred.api_secret_masked || '****');
       } else {
         setHasCredentials(false);
@@ -66,7 +66,7 @@ export default function ApiSettingsSection({ onCredentialsSaved }: ApiSettingsPr
       const json = await res.json();
       if (json.success) {
         setHasCredentials(true);
-        setSavedKey(json.data.api_key);
+        setSavedKey(json.data.api_key_masked || json.data.api_key || '');
         setMaskedSecret(json.data.api_secret_masked);
         setApiKey('');
         setApiSecret('');
